@@ -7,12 +7,10 @@ const statusPillVariants = cva(
   {
     variants: {
       tone: {
-        neutral:
-          "border-[var(--color-border)] bg-white/90 text-[var(--color-ink)]",
-        info: "border-transparent bg-[#dff2f7] text-[var(--color-info)]",
-        review: "border-transparent bg-[#fff0db] text-[var(--color-review)]",
-        success:
-          "border-transparent bg-[#e2f6ef] text-[var(--color-brand-strong)]",
+        neutral: "border-line bg-white/90 text-ink",
+        info: "border-transparent bg-info-soft text-info",
+        review: "border-transparent bg-warning-soft text-warning",
+        success: "border-transparent bg-success-soft text-success",
       },
     },
     defaultVariants: {

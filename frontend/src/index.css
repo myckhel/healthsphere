@@ -1,29 +1,55 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: "Instrument Sans", "Inter", "Segoe UI", sans-serif;
+  --font-display: "Fraunces", "Georgia", serif;
+
+  --color-canvas: #edf6f4;
+  --color-canvas-strong: #dceceb;
+  --color-ink: #143042;
+  --color-muted: #5f7782;
+  --color-line: rgba(20, 48, 66, 0.12);
+  --color-panel: rgba(255, 255, 255, 0.88);
+  --color-panel-strong: #ffffff;
+  --color-brand: #0c7a6b;
+  --color-brand-strong: #09594d;
+  --color-brand-soft: #d8efe9;
+  --color-accent: #1b8f77;
+  --color-info: #0f6a84;
+  --color-info-soft: #dff2f7;
+  --color-warning: #c67a11;
+  --color-warning-soft: #fff1da;
+  --color-danger: #ba4b2f;
+  --color-danger-soft: #fde6de;
+  --color-success: #176a59;
+  --color-success-soft: #def3ea;
+
+  --radius-panel: 1.875rem;
+  --radius-field: 1.25rem;
+
+  --shadow-panel: 0 22px 60px -42px rgba(20, 48, 66, 0.45);
+  --shadow-brand: 0 18px 30px -20px rgba(12, 122, 107, 0.92);
+}
+
 :root {
-  color: #143042;
+  color: theme(--color-ink);
   background:
     radial-gradient(
       circle at top right,
-      rgba(158, 215, 201, 0.35),
+      rgba(12, 122, 107, 0.18),
       transparent 26%
     ),
-    linear-gradient(180deg, #f6fbfb 0%, #eef6f5 48%, #e5efee 100%);
-  font-family: "Instrument Sans", "Inter", system-ui, sans-serif;
+    radial-gradient(
+      circle at left 18%,
+      rgba(15, 106, 132, 0.08),
+      transparent 30%
+    ),
+    linear-gradient(180deg, #f7fbfa 0%, #eff7f5 48%, #e7f1ef 100%);
+  font-family: theme(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --color-ink: #143042;
-  --color-muted: #55707f;
-  --color-panel: rgba(255, 255, 255, 0.84);
-  --color-panel-strong: #ffffff;
-  --color-border: rgba(20, 48, 66, 0.1);
-  --color-brand: #0c7a6b;
-  --color-brand-strong: #09594d;
-  --color-review: #d97706;
-  --color-danger: #c2410c;
-  --color-info: #0f6a84;
 }
 
 * {
@@ -32,6 +58,7 @@
 
 html {
   min-width: 320px;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -58,5 +85,26 @@ a {
 }
 
 ::selection {
-  background: rgba(12, 122, 107, 0.18);
+  background: color-mix(in srgb, theme(--color-brand) 20%, transparent);
+}
+
+@layer base {
+  body {
+    @apply bg-canvas text-ink;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: theme(--font-display);
+    letter-spacing: -0.03em;
+  }
+}
+
+@utility surface-grid {
+  background-image:
+    linear-gradient(rgba(20, 48, 66, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 48, 66, 0.04) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
