@@ -6,6 +6,8 @@ import { PatientIntakePage } from "@/app/screens/patient-intake-page";
 import { PatientNextStepsPage } from "@/app/screens/patient-next-steps-page";
 import { PhysicianQueuePage } from "@/app/screens/physician-queue-page";
 import { PhysicianConsultationPage } from "@/app/screens/physician-consultation-page";
+import { PhysicianConsultationActivePage } from "@/app/screens/physician-consultation-active-page";
+import { PhysicianConsultationOutcomePage } from "@/app/screens/physician-consultation-outcome-page";
 
 const router = createBrowserRouter([
   {
@@ -35,6 +37,14 @@ const router = createBrowserRouter([
       {
         path: "physician/consultation",
         element: <PhysicianConsultationPage />,
+      },
+      {
+        path: "physician/consultation/active",
+        element: <PhysicianConsultationActivePage />,
+      },
+      {
+        path: "physician/consultation/outcome",
+        element: <PhysicianConsultationOutcomePage />,
       },
     ],
   },

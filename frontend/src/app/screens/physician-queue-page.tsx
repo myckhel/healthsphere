@@ -9,6 +9,14 @@ import { StatusPill } from "@/shared/ui/status-pill";
 
 export function PhysicianQueuePage() {
   const patientDraft = useAppStore((state) => state.patientDraft);
+  const consultationSession = useAppStore((state) => state.consultationSession);
+
+  const primaryPatientStatus =
+    consultationSession.status === "in-progress"
+      ? { label: "In progress", tone: "info" as const }
+      : consultationSession.status === "completed"
+        ? { label: "Completed", tone: "review" as const }
+        : { label: "Next patient", tone: "success" as const };
 
   const queuePatients = [
     {
@@ -16,8 +24,8 @@ export function PhysicianQueuePage() {
       waitTime: "15 min",
       visitType: patientDraft.visitType,
       summary: patientDraft.symptoms,
-      status: "Next patient",
-      tone: "success" as const,
+      status: primaryPatientStatus.label,
+      tone: primaryPatientStatus.tone,
     },
     {
       name: "Grace Okon",
@@ -102,9 +110,23 @@ export function PhysicianQueuePage() {
 
                 <div className="mt-5 flex flex-wrap gap-3">
                   <Button asChild>
-                    <Link to="/physician/consultation">
+                    <Link
+                      to={
+                        index === 0
+                          ? consultationSession.status === "in-progress"
+                            ? "/physician/consultation/active"
+                            : consultationSession.status === "completed"
+                              ? "/physician/consultation/outcome"
+                              : "/physician/consultation"
+                          : "/physician/consultation"
+                      }
+                    >
                       {index === 0
-                        ? "Open next consultation"
+                        ? consultationSession.status === "in-progress"
+                          ? "Resume consultation"
+                          : consultationSession.status === "completed"
+                            ? "Review completed consultation"
+                            : "Open next consultation"
                         : "Open consultation demo"}
                       <ArrowRight className="h-4 w-4" />
                     </Link>

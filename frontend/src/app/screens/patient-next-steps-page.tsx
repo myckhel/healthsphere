@@ -81,6 +81,14 @@ export function PatientNextStepsPage() {
             <dl className="mt-5 grid gap-4 sm:grid-cols-2">
               <div>
                 <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Patient ID status
+                </dt>
+                <dd className="mt-1 text-sm font-medium text-ink">
+                  {patientDraft.patientId || "New ID will be assigned by the physician"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-[0.18em] text-muted">
                   Language
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
@@ -103,6 +111,12 @@ export function PatientNextStepsPage() {
                   {patientDraft.symptoms}
                 </dd>
               </div>
+              {!patientDraft.patientId ? (
+                <div className="sm:col-span-2 rounded-[1.25rem] bg-brand-soft/60 px-4 py-4 text-sm leading-6 text-muted">
+                  The physician will assign a patient ID before linking this
+                  visit to historical clinic records.
+                </div>
+              ) : null}
             </dl>
           </Card>
 

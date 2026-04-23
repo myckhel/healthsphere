@@ -1,5 +1,6 @@
 import { ChevronLeft, FileText, ShieldAlert, Stethoscope } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
@@ -7,8 +8,38 @@ import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
 
 export function PhysicianConsultationPage() {
+  const navigate = useNavigate();
   const patientDraft = useAppStore((state) => state.patientDraft);
+  const consultationSession = useAppStore((state) => state.consultationSession);
+  const startConsultation = useAppStore((state) => state.startConsultation);
   const firstName = patientDraft.fullName.split(" ")[0];
+
+  const sessionTone =
+    consultationSession.status === "in-progress"
+      ? "info"
+      : consultationSession.status === "completed"
+        ? "review"
+        : "success";
+
+  const sessionLabel =
+    consultationSession.status === "in-progress"
+      ? "Consultation in progress"
+      : consultationSession.status === "completed"
+        ? "Consultation completed"
+        : "Consultation ready";
+
+  function handleConsultationAction() {
+    if (consultationSession.status === "completed") {
+      navigate("/physician/consultation/outcome");
+      return;
+    }
+
+    if (consultationSession.status !== "in-progress") {
+      startConsultation();
+    }
+
+    navigate("/physician/consultation/active");
+  }
 
   return (
     <div className="space-y-6">
@@ -40,10 +71,18 @@ export function PhysicianConsultationPage() {
                   Ready to begin the visit
                 </h3>
               </div>
-              <StatusPill tone="success">Consultation ready</StatusPill>
+              <StatusPill tone={sessionTone}>{sessionLabel}</StatusPill>
             </div>
 
             <dl className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Patient ID number
+                </dt>
+                <dd className="mt-1 text-sm font-medium text-ink">
+                  {patientDraft.patientId || "Needs physician assignment"}
+                </dd>
+              </div>
               <div>
                 <dt className="text-xs uppercase tracking-[0.18em] text-muted">
                   Preferred language
@@ -115,6 +154,10 @@ export function PhysicianConsultationPage() {
                 complaint again in their own words.
               </p>
               <p>
+                Confirm the existing patient ID or assign a new one so the
+                visit can be linked to historical clinic records.
+              </p>
+              <p>
                 Check for urgent red flags before using the draft note to
                 structure the conversation.
               </p>
@@ -182,8 +225,12 @@ export function PhysicianConsultationPage() {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button>
-              Start consultation
+            <Button onClick={handleConsultationAction}>
+              {consultationSession.status === "in-progress"
+                ? "Resume consultation"
+                : consultationSession.status === "completed"
+                  ? "Review outcome"
+                  : "Start consultation"}
               <Stethoscope className="h-4 w-4" />
             </Button>
 

@@ -1,15 +1,6 @@
-export const patientFlowSteps = [
-  "Basics",
-  "Symptoms",
-  "Next steps",
-] as const;
+export const patientFlowSteps = ["Basics", "Symptoms", "Next steps"] as const;
 
-export const patientLanguages = [
-  "English",
-  "Hausa",
-  "Yoruba",
-  "Igbo",
-] as const;
+export const patientLanguages = ["English", "Hausa", "Yoruba", "Igbo"] as const;
 
 export const visitTypes = [
   "General consultation",
@@ -54,4 +45,69 @@ export const physicianChecklist = [
   "Confirm the patient identity and preferred language.",
   "Ask follow-up questions for red-flag symptoms before reviewing the draft note.",
   "Use the AI summary as a starting point, then document the final clinical judgment yourself.",
+] as const;
+
+export const consultationNoteSections = [
+  {
+    key: "historyOfPresentIllness",
+    label: "History of present illness",
+    placeholder:
+      "Summarize the timeline, severity, and anything that makes the symptoms better or worse.",
+  },
+  {
+    key: "redFlags",
+    label: "Red flags and urgent checks",
+    placeholder:
+      "Record danger signs, escalation checks, or note clearly if none are present.",
+  },
+  {
+    key: "examFindings",
+    label: "Exam findings",
+    placeholder:
+      "Add observations, vitals, and any focused exam findings relevant to the visit.",
+  },
+  {
+    key: "assessment",
+    label: "Clinical assessment",
+    placeholder:
+      "Write the clinician's working assessment. Keep uncertainty explicit where needed.",
+  },
+  {
+    key: "carePlan",
+    label: "Plan and treatment",
+    placeholder:
+      "Capture what will happen next: advice, tests, medication review, referral, or observation.",
+  },
+  {
+    key: "followUpInstructions",
+    label: "Follow-up instructions",
+    placeholder:
+      "Explain when to return, what warning signs matter, and what the patient should do next.",
+  },
+] as const;
+
+export const consultationNextActions = [
+  {
+    value: "follow-up-booking",
+    label: "Book follow-up",
+    description:
+      "Patient needs a planned follow-up appointment before leaving.",
+  },
+  {
+    value: "nurse-handoff",
+    label: "Nurse handoff",
+    description:
+      "Patient should move to a nurse for instructions, observation, or vitals.",
+  },
+  {
+    value: "referral",
+    label: "Specialist referral",
+    description: "Escalate to another clinician or service for further review.",
+  },
+  {
+    value: "discharge",
+    label: "Discharge with guidance",
+    description:
+      "Patient can leave with documented care advice and return precautions.",
+  },
 ] as const;

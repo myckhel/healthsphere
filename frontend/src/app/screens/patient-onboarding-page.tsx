@@ -19,6 +19,7 @@ export function PatientOnboardingPage() {
   const updatePatientDraft = useAppStore((state) => state.updatePatientDraft);
 
   const [fullName, setFullName] = useState(patientDraft.fullName);
+  const [patientId, setPatientId] = useState(patientDraft.patientId);
   const [phone, setPhone] = useState(patientDraft.phone);
   const [preferredLanguage, setPreferredLanguage] = useState(
     patientDraft.preferredLanguage,
@@ -34,6 +35,7 @@ export function PatientOnboardingPage() {
 
     updatePatientDraft({
       fullName,
+      patientId: patientId.trim(),
       phone,
       preferredLanguage,
       visitType,
@@ -96,6 +98,26 @@ export function PatientOnboardingPage() {
                 onChange={(event) => setPhone(event.target.value)}
                 placeholder="Enter a number we can reach"
               />
+            </div>
+
+            <div className="space-y-3">
+              <label
+                className="block text-sm font-medium text-ink"
+                htmlFor="patient-id"
+              >
+                Patient ID number if you have one
+              </label>
+              <Input
+                id="patient-id"
+                value={patientId}
+                onChange={(event) => setPatientId(event.target.value)}
+                placeholder="Enter your clinic patient ID"
+              />
+              <p className="text-sm leading-6 text-muted">
+                This number helps the clinic link your historical records. If
+                you do not have it, the physician will assign a new one during
+                your visit.
+              </p>
             </div>
 
             <div className="space-y-3">
