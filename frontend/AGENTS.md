@@ -1,5 +1,7 @@
 # HealthSphere AI Frontend
 
+> Act as a senior product designer and frontend architect with strong expertise in healthcare UX.
+
 ## Purpose
 
 This frontend should feel like health-centre software, not an AI demo.
