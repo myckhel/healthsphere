@@ -1,0 +1,66 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-healthsphere}
+      POSTGRES_USER: ${POSTGRES_USER:-healthsphere}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-healthsphere}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-healthsphere} -d
+            ${POSTGRES_DB:-healthsphere}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      target: prod
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_NAME: ${APP_NAME:-HealthSphere API}
+      APP_VERSION: ${APP_VERSION:-0.1.0}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DEBUG: ${DEBUG:-false}
+      API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-healthsphere}:${POSTGRES_PASSWORD:-healthsphere}@db:5432/${POSTGRES_DB:-healthsphere}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-healthsphere}:${POSTGRES_PASSWORD:-healthsphere}@db:5432/${POSTGRES_DB:-healthsphere}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      AUTH_MODE: ${AUTH_MODE:-clerk}
+      STUB_AUTH_HEADER: ${STUB_AUTH_HEADER:-X-HealthSphere-Actor-Id}
+      STUB_ROLE_HEADER: ${STUB_ROLE_HEADER:-X-HealthSphere-Actor-Role}
+      STUB_CLINIC_HEADER: ${STUB_CLINIC_HEADER:-X-HealthSphere-Clinic-Id}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      CALENDLY_API_TOKEN: ${CALENDLY_API_TOKEN:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-}
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      target: prod
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_prod_data:

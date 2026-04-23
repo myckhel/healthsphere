@@ -1,0 +1,72 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: healthsphere
+      POSTGRES_USER: healthsphere
+      POSTGRES_PASSWORD: healthsphere
+    ports:
+      - "${DB_PORT_FORWARD:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U healthsphere -d healthsphere" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_NAME: HealthSphere API
+      APP_VERSION: 0.1.0
+      ENVIRONMENT: development
+      DEBUG: "true"
+      API_V1_PREFIX: /api/v1
+      DATABASE_URL: postgresql+asyncpg://healthsphere:healthsphere@db:5432/healthsphere
+      DATABASE_URL_SYNC: postgresql://healthsphere:healthsphere@db:5432/healthsphere
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      AUTH_MODE: stub
+      STUB_AUTH_HEADER: X-HealthSphere-Actor-Id
+      STUB_ROLE_HEADER: X-HealthSphere-Actor-Role
+      STUB_CLINIC_HEADER: X-HealthSphere-Clinic-Id
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      CALENDLY_API_TOKEN: ${CALENDLY_API_TOKEN:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-}
+    command: sh -c "uv sync --frozen && uv run alembic upgrade head && uv run
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./backend:/app
+      - backend_venv:/app/.venv
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+
+volumes:
+  postgres_data:
+  backend_venv:
+  frontend_node_modules:
