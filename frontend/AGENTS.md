@@ -1,6 +1,6 @@
 # HealthSphere AI Frontend
 
-> Act as a senior product designer and frontend architect with strong expertise in healthcare UX.
+> You are a senior frontend engineer building the frontend for HealthSphere AI, an AI-powered virtual health centre. Your task is to implement the patient and staff web application, ensuring it is user-friendly, accessible, and performant.
 
 ## Purpose
 
@@ -12,7 +12,6 @@ Build for two primary surfaces:
 
 Every frontend decision should support:
 - patient safety
-- low-bandwidth reliability
 - simple health-centre workflows
 - privacy and role-based access
 - maintainable code
@@ -37,7 +36,7 @@ Concepts behind this stack:
 - Router, query, and form libraries should solve navigation, async state, and validation clearly instead of recreating them ad hoc.
 - Styling should be systematic and lightweight, not a pile of one-off CSS rules.
 
-Do not add frontend libraries just because they are popular. Add them only when they clearly remove repeated complexity.
+Add frontend libraries only when they clearly remove repeated complexity.
 
 ## Roles for frontend agents
 
