@@ -8,7 +8,6 @@ Create Date: 2026-04-22 00:00:00.000000
 from __future__ import annotations
 
 from alembic import op
-from pgvector.sqlalchemy import Vector
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
@@ -21,8 +20,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-
     op.create_table(
         "clinics",
         sa.Column("name", sa.String(length=255), nullable=False),
@@ -90,7 +87,7 @@ def upgrade() -> None:
         sa.Column("review_status", sa.String(length=32), nullable=False),
         sa.Column("reviewed_by", sa.String(length=128), nullable=True),
         sa.Column("reviewed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("embedding", Vector(1536), nullable=True),
+        sa.Column("embedding", postgresql.ARRAY(sa.Float()), nullable=True),
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),

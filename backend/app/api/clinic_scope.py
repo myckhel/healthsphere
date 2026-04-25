@@ -3,8 +3,10 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.common import RequestActor
+from app.services.clinic_service import require_clinic
 
 
 def parse_actor_clinic_id(actor: RequestActor) -> uuid.UUID | None:
@@ -31,3 +33,17 @@ def resolve_clinic_scope(
             detail="Actor cannot write outside the assigned clinic scope.",
         )
     return requested_clinic_id or actor_clinic_id
+
+
+async def resolve_existing_clinic_scope(
+    *,
+    db: AsyncSession,
+    actor: RequestActor,
+    requested_clinic_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+    clinic_id = resolve_clinic_scope(
+        actor=actor,
+        requested_clinic_id=requested_clinic_id,
+    )
+    await require_clinic(db, clinic_id)
+    return clinic_id

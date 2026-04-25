@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.models.consultation_session import ConsultationSession
     from app.models.patient import Patient
     from app.models.record import Record
+    from app.models.record_chunk import RecordChunk
     from app.models.triage_case import TriageCase
 
 
@@ -28,5 +29,6 @@ class Clinic(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     consultation_sessions: Mapped[list["ConsultationSession"]] = relationship(
         back_populates="clinic"
     )
+    record_chunks: Mapped[list["RecordChunk"]] = relationship(back_populates="clinic")
     records: Mapped[list["Record"]] = relationship(back_populates="clinic")
     triage_cases: Mapped[list["TriageCase"]] = relationship(back_populates="clinic")

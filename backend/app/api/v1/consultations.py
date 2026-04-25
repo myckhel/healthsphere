@@ -8,7 +8,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_request_actor
-from app.api.clinic_scope import parse_actor_clinic_id, resolve_clinic_scope
+from app.api.clinic_scope import parse_actor_clinic_id, resolve_existing_clinic_scope
 from app.core.database import get_db
 from app.models.audit_event import AuditEvent
 from app.models.consultation_session import ConsultationSession
@@ -135,7 +135,11 @@ async def create_consultation(
     actor: RequestActor = Depends(get_request_actor),
     db: AsyncSession = Depends(get_db),
 ) -> ConsultationSessionDetail:
-    clinic_id = resolve_clinic_scope(actor=actor, requested_clinic_id=payload.clinic_id)
+    clinic_id = await resolve_existing_clinic_scope(
+        db=db,
+        actor=actor,
+        requested_clinic_id=payload.clinic_id,
+    )
     await _load_patient(db, patient_id=payload.patient_id, clinic_id=clinic_id)
     if payload.triage_case_id is not None:
         await _load_triage_case(db, triage_case_id=payload.triage_case_id, clinic_id=clinic_id)

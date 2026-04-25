@@ -25,6 +25,15 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 uv run alembic upgrade head
 ```
 
+## Development seed
+
+The frontend and local stub-auth examples use clinic ID `11111111-1111-1111-1111-111111111111`.
+Seed that clinic once after migrations so clinic-scoped writes have a valid parent row:
+
+```bash
+uv run python -m app.scripts.seed_dev_data
+```
+
 ## Quality checks
 
 ```bash

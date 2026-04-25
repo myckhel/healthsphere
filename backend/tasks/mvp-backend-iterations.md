@@ -27,9 +27,9 @@ Checklist:
 Checklist:
 
 - [x] Consultation sessions model and API scaffolded
-- [ ] Retrieval chunk model added
-- [ ] Review-state transitions documented in code
-- [ ] Audit events wired for all new writes
+- [x] Retrieval chunk model added
+- [x] Review-state transitions documented in code
+- [x] Audit events wired for all new writes
 
 ## Iteration 2: Frontend-Critical APIs
 
@@ -54,10 +54,10 @@ Checklist:
 
 Checklist:
 
-- [ ] Agent runtime configured
-- [ ] Structured outputs validated
-- [ ] Tool boundaries implemented
-- [ ] Agent outputs stored as drafts only
+- [x] Agent runtime configured
+- [x] Structured outputs validated
+- [x] Tool boundaries implemented
+- [x] Agent outputs stored as drafts only
 
 ## Iteration 4: Record Upload And Retrieval
 
@@ -67,11 +67,11 @@ Checklist:
 
 Checklist:
 
-- [ ] Upload endpoint persists ingestion job
-- [ ] OCR boundary implemented
-- [ ] Record chunks stored
-- [ ] Embeddings generated
-- [ ] Retrieval ranked by patient, recency, and similarity
+- [x] Upload endpoint persists ingestion job
+- [x] OCR boundary implemented
+- [x] Record chunks stored
+- [x] Embeddings generated
+- [x] Retrieval ranked by patient, recency, and similarity
 
 ## Iteration 5: Physician Assist Workflow
 

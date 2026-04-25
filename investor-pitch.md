@@ -2,7 +2,7 @@
 
 **Slide 1: Cover Slide**
 *   **Project Name:** HealthSphere AI
-*   **Tagline:** Revolutionizing Healthcare Access in Africa through Offline-First, AI-Powered Virtual Health Hubs.
+*   **Tagline:** Revolutionizing Healthcare Access in Africa, AI-Powered Virtual Health Hubs.
 *   **Founder Name:** [Your Name/Team]
 
 **Slide 2: Problem**
@@ -19,7 +19,6 @@
 **Slide 4: Solution (Your Product)**
 *   **Proactive Virtual Ecosystem:** Transforming reactive community clinics into data-driven health hubs.
 *   **10x Workflow Improvement:** Ambient AI scribes automate charting, allowing doctors to complete documentation up to 70% faster.
-*   **Offline-First Resilience:** Lightweight AI models run directly on edge devices (tablets), guaranteeing 100% operational uptime without internet.
 *   **Linguistic Inclusivity:** AI triage agents converse natively in local dialects.
 
 **Slide 5: Product Demo / How It Works**

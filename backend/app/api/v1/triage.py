@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.clinic_scope import parse_actor_clinic_id, resolve_clinic_scope
+from app.api.clinic_scope import parse_actor_clinic_id, resolve_existing_clinic_scope
 from app.api.deps import get_request_actor
 from app.core.database import get_db
+from app.domain.review_policy import resolve_review_transition
 from app.models.audit_event import AuditEvent
 from app.models.patient import Patient
 from app.models.triage_case import TriageCase
@@ -76,7 +77,11 @@ async def create_triage_case(
     actor: RequestActor = Depends(get_request_actor),
     db: AsyncSession = Depends(get_db),
 ) -> TriageCaseSummary:
-    clinic_id = resolve_clinic_scope(actor=actor, requested_clinic_id=payload.clinic_id)
+    clinic_id = await resolve_existing_clinic_scope(
+        db=db,
+        actor=actor,
+        requested_clinic_id=payload.clinic_id,
+    )
     if payload.patient_id is not None:
         patient_query = select(Patient).where(Patient.id == payload.patient_id)
         if clinic_id:
@@ -88,10 +93,16 @@ async def create_triage_case(
                 detail="Patient not found for the current clinic scope.",
             )
 
+    reviewed_by, reviewed_at = resolve_review_transition(
+        review_status=payload.review_status,
+        reviewer_id=actor.subject,
+        reviewed_at=datetime.now(timezone.utc),
+    )
     triage_case = TriageCase(
         clinic_id=clinic_id,
         patient_id=payload.patient_id,
         source=payload.source,
+        status="open",
         urgency_level=payload.urgency_level,
         presenting_complaint=payload.presenting_complaint,
         symptoms=payload.symptoms,
@@ -99,6 +110,8 @@ async def create_triage_case(
         recommended_action=payload.recommended_action,
         model_output=payload.model_output,
         review_status=payload.review_status,
+        reviewed_by=reviewed_by,
+        reviewed_at=reviewed_at,
     )
     db.add(triage_case)
     await db.flush()
@@ -113,6 +126,8 @@ async def create_triage_case(
             details={
                 "urgency_level": triage_case.urgency_level,
                 "recommended_queue": triage_case.recommended_queue,
+                "review_status": triage_case.review_status,
+                "reviewed_by": triage_case.reviewed_by,
             },
         )
     )

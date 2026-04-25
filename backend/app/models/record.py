@@ -4,17 +4,16 @@ import datetime as dt
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from pgvector.sqlalchemy import Vector
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.clinic import Clinic
     from app.models.patient import Patient
+    from app.models.record_chunk import RecordChunk
 
 
 class Record(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -41,7 +40,11 @@ class Record(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     review_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     reviewed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     reviewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
 
     clinic: Mapped[Clinic | None] = relationship(back_populates="records")
     patient: Mapped[Patient] = relationship(back_populates="records")
+    chunks: Mapped[list[RecordChunk]] = relationship(
+        back_populates="record",
+        cascade="all, delete-orphan",
+    )

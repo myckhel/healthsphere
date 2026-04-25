@@ -43,3 +43,23 @@ class RecordCreateRequest(BaseModel):
 
 class RecordReviewRequest(BaseModel):
     review_status: str = Field(min_length=1, max_length=32)
+
+
+class RecordUploadResponse(RecordDetail):
+    chunk_count: int
+    ocr_status: str
+    retrieval_ready: bool
+
+
+class RecordRetrievalMatch(BaseModel):
+    record_id: uuid.UUID
+    chunk_id: uuid.UUID
+    patient_id: uuid.UUID
+    title: str
+    record_type: str
+    review_status: str
+    snippet: str
+    similarity_score: float
+    recency_score: float
+    combined_score: float
+    created_at: dt.datetime
