@@ -73,3 +73,9 @@ Until Clerk verification is wired, protected routes accept these headers in loca
 - `X-HealthSphere-Actor-Id`
 - `X-HealthSphere-Actor-Role`
 - `X-HealthSphere-Clinic-Id`
+
+## API contract doc
+
+For a frontend-facing contract summary of the current backend routes, request and response shapes, and implemented versus scaffolded endpoints, see:
+
+- [docs/frontend-api-contract.md](./docs/frontend-api-contract.md)

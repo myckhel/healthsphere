@@ -1,3 +1,6 @@
+TEST_CLINIC_ID = "11111111-1111-1111-1111-111111111111"
+
+
 async def test_protected_routes_require_actor_context(client) -> None:
     response = await client.get("/api/v1/patients")
 
@@ -11,7 +14,7 @@ async def test_stub_auth_headers_allow_protected_read_routes(client) -> None:
         headers={
             "X-HealthSphere-Actor-Id": "staff-123",
             "X-HealthSphere-Actor-Role": "staff",
-            "X-HealthSphere-Clinic-Id": "demo-clinic",
+            "X-HealthSphere-Clinic-Id": TEST_CLINIC_ID,
         },
     )
 

@@ -1,14 +1,71 @@
+import datetime as dt
+import uuid
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, Mock
+
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app.core.database import engine
+from app.core.database import engine, get_db
 from app.main import app
+
+
+class ScalarResult:
+    def __init__(self, items):
+        self._items = items
+
+    def all(self):
+        return self._items
+
+
+class ExecuteResult:
+    def __init__(self, items):
+        self._items = items
+
+    def all(self):
+        return self._items
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def _dispose_async_engine_after_test() -> None:
     yield
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def db_session() -> AsyncIterator[AsyncMock]:
+    session = AsyncMock()
+    session.scalar.return_value = None
+    session.scalars.return_value = ScalarResult([])
+    session.execute.return_value = ExecuteResult([])
+
+    added: list[object] = []
+
+    def add_side_effect(item: object) -> None:
+        added.append(item)
+
+    async def flush_side_effect() -> None:
+        now = dt.datetime.now(dt.timezone.utc)
+        for item in added:
+            if getattr(item, "id", None) is None:
+                item.id = uuid.uuid4()
+            if getattr(item, "created_at", None) is None:
+                item.created_at = now
+            if getattr(item, "updated_at", None) is None:
+                item.updated_at = now
+
+    session.add = Mock(side_effect=add_side_effect)
+    session.flush.side_effect = flush_side_effect
+    session._added = added
+
+    async def override_get_db() -> AsyncIterator[AsyncMock]:
+        yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        yield session
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
 
 @pytest_asyncio.fixture

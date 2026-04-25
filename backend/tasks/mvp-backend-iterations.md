@@ -40,11 +40,11 @@ Checklist:
 
 Checklist:
 
-- [ ] Patient endpoints persist data
-- [ ] Triage endpoints persist data
-- [ ] Queue endpoint returns physician-ready cards
-- [ ] Consultation endpoints support frontend flow
-- [ ] Record endpoints support physician review
+- [x] Patient endpoints persist data
+- [x] Triage endpoints persist data
+- [x] Queue endpoint returns physician-ready cards
+- [x] Consultation endpoints support frontend flow
+- [x] Record endpoints support physician review
 
 ## Iteration 3: Agent Runtime
 
