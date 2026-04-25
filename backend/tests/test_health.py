@@ -14,5 +14,7 @@ async def test_openapi_exposes_initial_workflow_routes(client) -> None:
     assert "/api/v1/health" in paths
     assert "/api/v1/patients" in paths
     assert "/api/v1/appointments" in paths
+    assert "/api/v1/consultations" in paths
     assert "/api/v1/records" in paths
     assert "/api/v1/triage/cases" in paths
+    assert "/api/v1/triage/queue" in paths

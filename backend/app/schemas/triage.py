@@ -20,6 +20,18 @@ class TriageCaseSummary(BaseModel):
     review_status: str
 
 
+class QueueCaseSummary(BaseModel):
+    triage_case_id: uuid.UUID
+    patient_id: uuid.UUID | None = None
+    patient_name: str
+    urgency_level: str
+    visit_reason: str
+    recommended_queue: str | None = None
+    status: str
+    wait_minutes: int
+    queued_at: str
+
+
 class TriageCaseCreateRequest(BaseModel):
     clinic_id: uuid.UUID | None = None
     patient_id: uuid.UUID | None = None

@@ -9,6 +9,7 @@ from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.appointment import Appointment
+    from app.models.consultation_session import ConsultationSession
     from app.models.patient import Patient
     from app.models.record import Record
     from app.models.triage_case import TriageCase
@@ -24,5 +25,8 @@ class Clinic(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     patients: Mapped[list["Patient"]] = relationship(back_populates="clinic")
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="clinic")
+    consultation_sessions: Mapped[list["ConsultationSession"]] = relationship(
+        back_populates="clinic"
+    )
     records: Mapped[list["Record"]] = relationship(back_populates="clinic")
     triage_cases: Mapped[list["TriageCase"]] = relationship(back_populates="clinic")

@@ -12,6 +12,7 @@ from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.clinic import Clinic
+    from app.models.consultation_session import ConsultationSession
     from app.models.patient import Patient
 
 
@@ -43,4 +44,7 @@ class TriageCase(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     reviewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     clinic: Mapped[Clinic | None] = relationship(back_populates="triage_cases")
+    consultation_sessions: Mapped[list[ConsultationSession]] = relationship(
+        back_populates="triage_case"
+    )
     patient: Mapped[Patient | None] = relationship(back_populates="triage_cases")
