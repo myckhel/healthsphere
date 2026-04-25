@@ -81,10 +81,10 @@ Checklist:
 
 Checklist:
 
-- [ ] Draft assessment package generated
-- [ ] Consultation workspace returns retrieved context
-- [ ] Clinician edits persisted
-- [ ] Final assessment stored as clinician-reviewed
+- [x] Draft assessment package generated
+- [x] Consultation workspace returns retrieved context
+- [x] Clinician edits persisted
+- [x] Final assessment stored as clinician-reviewed
 
 ## Iteration 6: Guardrails And Cost Controls
 

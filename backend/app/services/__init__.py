@@ -6,6 +6,7 @@ from app.services.clinic_service import (
     get_clinic,
     require_clinic,
 )
+from app.services.consultation_support_service import ConsultationSupportService
 from app.services.embedding_service import EmbeddingService
 from app.services.messaging_service import MessagingService
 from app.services.ocr_service import OCRService
@@ -16,6 +17,7 @@ __all__ = [
     "ClerkAuthService",
     "DEFAULT_DEV_CLINIC_ID",
     "DEFAULT_DEV_CLINIC_NAME",
+    "ConsultationSupportService",
     "EmbeddingService",
     "ensure_clinic",
     "get_clinic",
