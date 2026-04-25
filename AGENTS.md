@@ -2,7 +2,7 @@
 
 ## Project mission
 
-HealthSphere AI is an AI-powered virtual health centre designed for low-resource, low-bandwidth environments, with an initial focus on Nigeria and similar Sub-Saharan African contexts.
+HealthSphere AI is an AI-powered virtual health centre, with an initial focus on Nigeria and similar Sub-Saharan African contexts.
 
 The product should help community health centres move from paper-based, reactive care to a digital, assisted, proactive care model.
 
