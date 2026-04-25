@@ -1,20 +1,44 @@
 import { ChevronLeft, FileText, ShieldAlert, Stethoscope } from "lucide-react";
-import type { FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { z } from "zod";
 import {
   consultationNextActions,
   consultationNoteSections,
-} from "@/app/prototype-content";
+} from "@/app/app-content";
+import {
+  createEmptyConsultationDraft,
+  getConsultation,
+  getApiErrorMessage,
+  listPatients,
+  listRecords,
+  listTriageCases,
+  queryKeys,
+  updateConsultation,
+  type ConsultationNextAction,
+} from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
-import {
-  type ConsultationDraft,
-  type ConsultationNextAction,
-  useAppStore,
-} from "@/shared/state/app-store";
+import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
 import { Textarea } from "@/shared/ui/textarea";
+
+const consultationSchema = z.object({
+  clinicianName: z.string().trim().min(1, "Clinician name is required."),
+  historyOfPresentIllness: z.string(),
+  redFlags: z.string(),
+  examFindings: z.string(),
+  assessment: z.string(),
+  carePlan: z.string(),
+  followUpInstructions: z.string(),
+  nextAction: z.string(),
+});
+
+type ConsultationFormValues = z.infer<typeof consultationSchema>;
 
 function formatSessionTime(value: string | null) {
   if (!value) {
@@ -29,47 +53,122 @@ function formatSessionTime(value: string | null) {
 
 export function PhysicianConsultationActivePage() {
   const navigate = useNavigate();
-  const patientDraft = useAppStore((state) => state.patientDraft);
-  const consultationSession = useAppStore((state) => state.consultationSession);
-  const consultationDraft = useAppStore((state) => state.consultationDraft);
-  const updateConsultationDraft = useAppStore(
-    (state) => state.updateConsultationDraft,
-  );
-  const setConsultationNextAction = useAppStore(
-    (state) => state.setConsultationNextAction,
-  );
-  const completeConsultation = useAppStore(
-    (state) => state.completeConsultation,
-  );
+  const queryClient = useQueryClient();
+  const { consultationId } = useParams();
+  const setClinicianName = useAppStore((state) => state.setClinicianName);
+  const localClinicianName = useAppStore((state) => state.clinicianName);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const nextAction: ConsultationNextAction =
-    consultationSession.nextAction ?? "follow-up-booking";
-  const firstName = patientDraft.fullName.split(" ")[0];
-  const canComplete =
-    consultationDraft.assessment.trim().length >= 12 &&
-    consultationDraft.carePlan.trim().length >= 12;
+  const consultationQuery = useQuery({
+    queryKey: consultationId
+      ? queryKeys.consultation(consultationId)
+      : ["consultation", "missing"],
+    queryFn: () => getConsultation(consultationId as string),
+    enabled: Boolean(consultationId),
+  });
+  const patientsQuery = useQuery({
+    queryKey: queryKeys.patients(),
+    queryFn: () => listPatients(),
+  });
+  const triageCasesQuery = useQuery({
+    queryKey: queryKeys.triageCases,
+    queryFn: listTriageCases,
+  });
+  const recordsQuery = useQuery({
+    queryKey: queryKeys.records(consultationQuery.data?.patientId),
+    queryFn: () => listRecords(consultationQuery.data?.patientId),
+    enabled: Boolean(consultationQuery.data?.patientId),
+  });
 
-  function updateField<K extends keyof ConsultationDraft>(
-    key: K,
-    value: ConsultationDraft[K],
-  ) {
-    updateConsultationDraft({
-      [key]: value,
+  const { register, handleSubmit, reset, control, setValue } =
+    useForm<ConsultationFormValues>({
+      resolver: zodResolver(consultationSchema),
+      defaultValues: {
+        clinicianName: localClinicianName,
+        ...createEmptyConsultationDraft(),
+        nextAction: "follow-up-booking",
+      },
     });
-  }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const consultation = consultationQuery.data;
+  const patient = patientsQuery.data?.find(
+    (item) => item.id === consultation?.patientId,
+  );
+  const triageCase = triageCasesQuery.data?.find(
+    (item) => item.id === consultation?.triageCaseId,
+  );
 
-    if (!canComplete) {
+  useEffect(() => {
+    if (!consultation) {
       return;
     }
 
-    completeConsultation(nextAction);
-    navigate("/physician/consultation/outcome");
-  }
+    const draft = consultation.draftNote ?? createEmptyConsultationDraft();
+    reset({
+      clinicianName: consultation.clinicianName ?? localClinicianName,
+      ...draft,
+      nextAction: consultation.nextAction ?? "follow-up-booking",
+    });
+  }, [consultation, localClinicianName, reset]);
 
-  if (consultationSession.status !== "in-progress") {
+  const saveMutation = useMutation({
+    mutationFn: (values: ConsultationFormValues) =>
+      updateConsultation(consultationId as string, {
+        clinicianName: values.clinicianName,
+        nextAction: values.nextAction as ConsultationNextAction,
+        draftNote: {
+          historyOfPresentIllness: values.historyOfPresentIllness,
+          redFlags: values.redFlags,
+          examFindings: values.examFindings,
+          assessment: values.assessment,
+          carePlan: values.carePlan,
+          followUpInstructions: values.followUpInstructions,
+        },
+        status: "in_progress",
+      }),
+    onSuccess: async (updated) => {
+      setClinicianName(updated.clinicianName ?? localClinicianName);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.consultation(updated.id),
+      });
+      setSubmitError(null);
+    },
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: (values: ConsultationFormValues) =>
+      updateConsultation(consultationId as string, {
+        clinicianName: values.clinicianName,
+        nextAction: values.nextAction as ConsultationNextAction,
+        draftNote: {
+          historyOfPresentIllness: values.historyOfPresentIllness,
+          redFlags: values.redFlags,
+          examFindings: values.examFindings,
+          assessment: values.assessment,
+          carePlan: values.carePlan,
+          followUpInstructions: values.followUpInstructions,
+        },
+        status: "completed",
+      }),
+    onSuccess: async (updated) => {
+      setClinicianName(updated.clinicianName ?? localClinicianName);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.consultation(updated.id),
+      });
+      navigate(`/physician/consultation/${updated.id}/outcome`);
+    },
+  });
+
+  const nextAction = useWatch({
+    control,
+    name: "nextAction",
+  }) as ConsultationNextAction;
+  const assessment = useWatch({ control, name: "assessment" });
+  const carePlan = useWatch({ control, name: "carePlan" });
+  const canComplete =
+    assessment.trim().length >= 12 && carePlan.trim().length >= 12;
+
+  if (!consultation || consultation.status !== "in_progress") {
     return (
       <Card className="space-y-5">
         <div>
@@ -88,7 +187,13 @@ export function PhysicianConsultationActivePage() {
 
         <div className="flex flex-wrap gap-3">
           <Button asChild>
-            <Link to="/physician/consultation">
+            <Link
+              to={
+                consultationId
+                  ? `/physician/consultation/${consultationId}`
+                  : "/physician/queue"
+              }
+            >
               Return to consultation workspace
               <Stethoscope className="h-4 w-4" />
             </Link>
@@ -109,11 +214,15 @@ export function PhysicianConsultationActivePage() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">
             Active consultation
           </p>
-          <h2 className="mt-2 text-3xl text-ink">{patientDraft.fullName}</h2>
+          <h2 className="mt-2 text-3xl text-ink">
+            {patient
+              ? `${patient.firstName} ${patient.lastName}`
+              : consultation.patientId}
+          </h2>
         </div>
 
         <Button variant="ghost" asChild>
-          <Link to="/physician/consultation">
+          <Link to={`/physician/consultation/${consultation.id}`}>
             <ChevronLeft className="h-4 w-4" />
             Back to readiness
           </Link>
@@ -139,7 +248,7 @@ export function PhysicianConsultationActivePage() {
                   Clinician
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {consultationSession.clinicianName}
+                  {consultation.clinicianName || localClinicianName}
                 </dd>
               </div>
               <div>
@@ -147,7 +256,7 @@ export function PhysicianConsultationActivePage() {
                   Started at
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {formatSessionTime(consultationSession.startedAt)}
+                  {formatSessionTime(consultation.startedAt)}
                 </dd>
               </div>
               <div>
@@ -155,7 +264,7 @@ export function PhysicianConsultationActivePage() {
                   Preferred language
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {patientDraft.preferredLanguage}
+                  {useAppStore.getState().patientDraft.preferredLanguage}
                 </dd>
               </div>
               <div>
@@ -163,7 +272,7 @@ export function PhysicianConsultationActivePage() {
                   Visit type
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {patientDraft.visitType}
+                  {triageCase?.recommendedQueue || "General consultation"}
                 </dd>
               </div>
               <div className="sm:col-span-2">
@@ -171,7 +280,8 @@ export function PhysicianConsultationActivePage() {
                   Intake summary
                 </dt>
                 <dd className="mt-1 text-sm leading-6 text-muted">
-                  {patientDraft.symptoms}
+                  {triageCase?.presentingComplaint ||
+                    "No triage complaint found."}
                 </dd>
               </div>
             </dl>
@@ -194,20 +304,23 @@ export function PhysicianConsultationActivePage() {
               <div>
                 <h3 className="text-xl text-ink">Draft handoff available</h3>
                 <p className="text-sm text-muted">
-                  Use the intake summary as context, then verify it directly
-                  with {firstName}.
+                  Use the intake summary and any saved records as context, then
+                  verify them directly with{" "}
+                  {patient?.firstName ?? "the patient"}.
                 </p>
               </div>
             </div>
 
             <div className="rounded-[1.5rem] bg-white/80 px-4 py-4 text-sm leading-6 text-muted">
-              Confirm identity, re-state the main complaint in the patient's own
-              words, and check danger signs before finalizing the plan.
+              Confirm identity, re-state the complaint in the patient's own
+              words, and check danger signs before finalizing the plan. This
+              patient currently has {recordsQuery.data?.length ?? 0} saved
+              record(s) available for review.
             </div>
           </Card>
         </div>
 
-        <form className="space-y-6" onSubmit={handleSubmit}>
+        <form className="space-y-6" onSubmit={handleSubmit(() => undefined)}>
           <Card className="space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -218,7 +331,7 @@ export function PhysicianConsultationActivePage() {
                   Document the live assessment
                 </h3>
               </div>
-              <StatusPill tone="review">Draft saved locally</StatusPill>
+              <StatusPill tone="review">Draft saved to backend</StatusPill>
             </div>
 
             <div className="rounded-[1.5rem] border border-line bg-brand-soft/50 px-4 py-4">
@@ -226,8 +339,22 @@ export function PhysicianConsultationActivePage() {
                 Chief complaint
               </p>
               <p className="mt-2 text-sm leading-6 text-ink">
-                {patientDraft.symptoms}
+                {triageCase?.presentingComplaint || "No complaint captured."}
               </p>
+            </div>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="clinicianName"
+                className="text-sm font-medium text-ink"
+              >
+                Clinician name
+              </label>
+              <input
+                id="clinicianName"
+                {...register("clinicianName")}
+                className="h-12 w-full rounded-field border border-line bg-white px-4 text-ink outline-none"
+              />
             </div>
 
             <div className="space-y-5">
@@ -241,14 +368,37 @@ export function PhysicianConsultationActivePage() {
                   </label>
                   <Textarea
                     id={section.key}
-                    value={consultationDraft[section.key]}
-                    onChange={(event) =>
-                      updateField(section.key, event.target.value)
-                    }
+                    {...register(section.key)}
                     placeholder={section.placeholder}
                   />
                 </div>
               ))}
+            </div>
+
+            {submitError ? (
+              <InfoBanner
+                title="Consultation note needs attention"
+                tone="review"
+              >
+                {submitError}
+              </InfoBanner>
+            ) : null}
+
+            {saveMutation.isError ? (
+              <InfoBanner title="Unable to save draft" tone="review">
+                {getApiErrorMessage(saveMutation.error)}
+              </InfoBanner>
+            ) : null}
+
+            <div className="flex flex-wrap gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleSubmit((values) => saveMutation.mutate(values))}
+                disabled={saveMutation.isPending}
+              >
+                Save note draft
+              </Button>
             </div>
           </Card>
 
@@ -270,7 +420,7 @@ export function PhysicianConsultationActivePage() {
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => setConsultationNextAction(option.value)}
+                    onClick={() => setValue("nextAction", option.value)}
                     className={
                       isSelected
                         ? "rounded-[1.5rem] border border-brand bg-brand-soft px-4 py-4 text-left"
@@ -289,7 +439,20 @@ export function PhysicianConsultationActivePage() {
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Button type="submit" disabled={!canComplete}>
+              <Button
+                type="button"
+                disabled={!canComplete || completeMutation.isPending}
+                onClick={handleSubmit((values) => {
+                  if (!canComplete) {
+                    setSubmitError(
+                      "Assessment and plan are required before the consultation can be completed.",
+                    );
+                    return;
+                  }
+                  setSubmitError(null);
+                  completeMutation.mutate(values);
+                })}
+              >
                 Complete consultation
                 <Stethoscope className="h-4 w-4" />
               </Button>
@@ -298,6 +461,12 @@ export function PhysicianConsultationActivePage() {
                 <Link to="/physician/queue">Return to queue</Link>
               </Button>
             </div>
+
+            {completeMutation.isError ? (
+              <InfoBanner title="Unable to complete consultation" tone="review">
+                {getApiErrorMessage(completeMutation.error)}
+              </InfoBanner>
+            ) : null}
           </Card>
         </form>
       </div>

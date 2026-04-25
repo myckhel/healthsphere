@@ -1,6 +1,13 @@
 import { ArrowRight, Clock3, Stethoscope, UsersRound } from "lucide-react";
-import { Link } from "react-router-dom";
-import { physicianChecklist } from "@/app/prototype-content";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { physicianChecklist } from "@/app/app-content";
+import {
+  createConsultation,
+  listConsultations,
+  listTriageQueue,
+  queryKeys,
+} from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
@@ -8,42 +15,61 @@ import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
 
 export function PhysicianQueuePage() {
-  const patientDraft = useAppStore((state) => state.patientDraft);
-  const consultationSession = useAppStore((state) => state.consultationSession);
+  const navigate = useNavigate();
+  const clinicianName = useAppStore((state) => state.clinicianName);
+  const setSelectedPatientId = useAppStore(
+    (state) => state.setSelectedPatientId,
+  );
+  const setSelectedTriageCaseId = useAppStore(
+    (state) => state.setSelectedTriageCaseId,
+  );
+  const setActiveConsultationId = useAppStore(
+    (state) => state.setActiveConsultationId,
+  );
 
-  const primaryPatientStatus =
-    consultationSession.status === "in-progress"
-      ? { label: "In progress", tone: "info" as const }
-      : consultationSession.status === "completed"
-        ? { label: "Completed", tone: "review" as const }
-        : { label: "Next patient", tone: "success" as const };
+  const queueQuery = useQuery({
+    queryKey: queryKeys.triageQueue,
+    queryFn: listTriageQueue,
+  });
+  const consultationsQuery = useQuery({
+    queryKey: queryKeys.consultations(),
+    queryFn: () => listConsultations(),
+  });
 
-  const queuePatients = [
-    {
-      name: patientDraft.fullName,
-      waitTime: "15 min",
-      visitType: patientDraft.visitType,
-      summary: patientDraft.symptoms,
-      status: primaryPatientStatus.label,
-      tone: primaryPatientStatus.tone,
-    },
-    {
-      name: "Grace Okon",
-      waitTime: "22 min",
-      visitType: "Follow-up visit",
-      summary: "Medication review after a recent malaria diagnosis.",
-      status: "Waiting",
-      tone: "neutral" as const,
-    },
-    {
-      name: "Musa Ibrahim",
-      waitTime: "28 min",
-      visitType: "General consultation",
-      summary: "Stomach pain since this morning and reduced appetite.",
-      status: "Waiting",
-      tone: "neutral" as const,
-    },
-  ];
+  const createConsultationMutation = useMutation({
+    mutationFn: createConsultation,
+  });
+
+  async function openQueueItem(patientId: string, triageCaseId: string) {
+    const existing = (consultationsQuery.data ?? []).find(
+      (consultation) =>
+        consultation.triageCaseId === triageCaseId &&
+        consultation.status !== "completed",
+    );
+
+    setSelectedPatientId(patientId);
+    setSelectedTriageCaseId(triageCaseId);
+
+    if (existing) {
+      setActiveConsultationId(existing.id);
+      navigate(
+        existing.status === "in_progress"
+          ? `/physician/consultation/${existing.id}/active`
+          : `/physician/consultation/${existing.id}`,
+      );
+      return;
+    }
+
+    const consultation = await createConsultationMutation.mutateAsync({
+      patientId,
+      triageCaseId,
+      clinicianName,
+      status: "ready",
+    });
+
+    setActiveConsultationId(consultation.id);
+    navigate(`/physician/consultation/${consultation.id}`);
+  }
 
   return (
     <div className="space-y-6">
@@ -63,77 +89,108 @@ export function PhysicianQueuePage() {
               <p className="text-xs uppercase tracking-[0.18em] text-muted">
                 Waiting now
               </p>
-              <p className="mt-2 text-3xl font-semibold text-ink">3</p>
+              <p className="mt-2 text-3xl font-semibold text-ink">
+                {queueQuery.data?.length ?? 0}
+              </p>
             </div>
             <div className="rounded-[1.5rem] border border-line bg-white px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-muted">
                 Ready to open
               </p>
-              <p className="mt-2 text-3xl font-semibold text-ink">1</p>
+              <p className="mt-2 text-3xl font-semibold text-ink">
+                {
+                  (queueQuery.data ?? []).filter((item) =>
+                    Boolean(item.patientId),
+                  ).length
+                }
+              </p>
             </div>
             <div className="rounded-[1.5rem] border border-line bg-white px-4 py-4">
               <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                Low-bandwidth mode
+                In progress
               </p>
-              <p className="mt-2 text-3xl font-semibold text-ink">On</p>
+              <p className="mt-2 text-3xl font-semibold text-ink">
+                {
+                  (consultationsQuery.data ?? []).filter(
+                    (item) => item.status === "in_progress",
+                  ).length
+                }
+              </p>
             </div>
           </div>
 
           <div className="space-y-4">
-            {queuePatients.map((patient, index) => (
-              <div
-                key={patient.name}
-                className="rounded-[1.75rem] border border-line bg-white px-5 py-5"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-xl text-ink">{patient.name}</h3>
-                      <StatusPill tone={patient.tone}>
-                        {patient.status}
-                      </StatusPill>
+            {(queueQuery.data ?? []).map((patient) => {
+              const matchingConsultation = (consultationsQuery.data ?? []).find(
+                (consultation) =>
+                  consultation.triageCaseId === patient.triageCaseId,
+              );
+              const tone = !patient.patientId
+                ? ("review" as const)
+                : matchingConsultation?.status === "in_progress"
+                  ? ("info" as const)
+                  : ("success" as const);
+              const label = !patient.patientId
+                ? "Needs patient record"
+                : matchingConsultation?.status === "in_progress"
+                  ? "Resume"
+                  : matchingConsultation?.status === "completed"
+                    ? "Completed"
+                    : "Ready";
+
+              return (
+                <div
+                  key={patient.triageCaseId}
+                  className="rounded-[1.75rem] border border-line bg-white px-5 py-5"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-xl text-ink">
+                          {patient.patientName}
+                        </h3>
+                        <StatusPill tone={tone}>{label}</StatusPill>
+                      </div>
+                      <p className="mt-2 text-sm text-muted">
+                        {patient.recommendedQueue ??
+                          "General consultation queue"}
+                      </p>
                     </div>
-                    <p className="mt-2 text-sm text-muted">
-                      {patient.visitType}
-                    </p>
+
+                    <div className="flex items-center gap-2 text-sm text-muted">
+                      <Clock3 className="h-4 w-4" />
+                      {patient.waitMinutes} min
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2 text-sm text-muted">
-                    <Clock3 className="h-4 w-4" />
-                    {patient.waitTime}
-                  </div>
-                </div>
+                  <p className="mt-4 text-sm leading-6 text-muted">
+                    {patient.visitReason}
+                  </p>
 
-                <p className="mt-4 text-sm leading-6 text-muted">
-                  {patient.summary}
-                </p>
-
-                <div className="mt-5 flex flex-wrap gap-3">
-                  <Button asChild>
-                    <Link
-                      to={
-                        index === 0
-                          ? consultationSession.status === "in-progress"
-                            ? "/physician/consultation/active"
-                            : consultationSession.status === "completed"
-                              ? "/physician/consultation/outcome"
-                              : "/physician/consultation"
-                          : "/physician/consultation"
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <Button
+                      disabled={
+                        !patient.patientId ||
+                        createConsultationMutation.isPending
+                      }
+                      onClick={() =>
+                        patient.patientId
+                          ? openQueueItem(
+                              patient.patientId,
+                              patient.triageCaseId,
+                            )
+                          : undefined
                       }
                     >
-                      {index === 0
-                        ? consultationSession.status === "in-progress"
-                          ? "Resume consultation"
-                          : consultationSession.status === "completed"
-                            ? "Review completed consultation"
-                            : "Open next consultation"
-                        : "Open consultation demo"}
+                      {matchingConsultation?.status === "in_progress"
+                        ? "Resume consultation"
+                        : "Open consultation"}
                       <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </Button>
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
 

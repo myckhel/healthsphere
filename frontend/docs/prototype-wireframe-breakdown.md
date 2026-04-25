@@ -8,18 +8,17 @@ Here is a structural frontend prototype and wireframe breakdown based on the Hea
 
 **Wireframe Layout**
 
-| HealthSphere AI - Reception | [Sync Status: Offline - Caching Local] | [User: Admin 01]                |
-| :-------------------------- | :------------------------------------- | :------------------------------ |
-| **Action Panel**            | **OCR Processing View**                | **Structured EHR Output**       |
-| [ + New Patient ]           | *Image Preview of Paper Card*          | **Patient Name:** Amina Bello   |
-| [ Scan Medical Card ]       | `Scanning...`                          | **DOB:** 12/05/1985             |
-| [ Upload Photo ]            | `Extracting Text via AI...`            | **Vitals History:** BP 120/80   |
-|                             | `Mapping Structure...`                 | **Previous Diagnosis:** Malaria |
-|                             |                                        |                                 |
-|                             |                                        | [ **Approve & Save to EHR** ]   |
+| HealthSphere AI - Reception | [Sync Status: -]              | [User: Admin 01]                |
+| :-------------------------- | :---------------------------- | :------------------------------ |
+| **Action Panel**            | **OCR Processing View**       | **Structured EHR Output**       |
+| [ + New Patient ]           | *Image Preview of Paper Card* | **Patient Name:** Amina Bello   |
+| [ Scan Medical Card ]       | `Scanning...`                 | **DOB:** 12/05/1985             |
+| [ Upload Photo ]            | `Extracting Text via AI...`   | **Vitals History:** BP 120/80   |
+|                             | `Mapping Structure...`        | **Previous Diagnosis:** Malaria |
+|                             |                               |                                 |
+|                             |                               | [ **Approve & Save to EHR** ]   |
 
 **Component Breakdown:**
-* **Offline Indicator:** A critical UI component showing the edge device's current sync status, ensuring staff know the system is still functioning without internet.
 * **Scan Interface:** Triggers the device camera or attached scanner to capture the physical medical card.
 * **Split-Screen Verification:** The UI displays the raw photo of the handwriting next to the parsed digital data. 
 * **Human-in-the-Loop Confirmation:** Because OCR struggles with messy handwriting, the staff member must review the extracted text and click "Approve" before it populates the EHR database.

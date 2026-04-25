@@ -4,12 +4,17 @@ import {
   ClipboardCheck,
   Stethoscope,
 } from "lucide-react";
-import { Link } from "react-router-dom";
-import { consultationNextActions } from "@/app/prototype-content";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useParams } from "react-router-dom";
+import { consultationNextActions } from "@/app/app-content";
+import {
+  getConsultation,
+  listPatients,
+  queryKeys,
+} from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
-import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
 
 function formatSessionTime(value: string | null) {
@@ -24,18 +29,29 @@ function formatSessionTime(value: string | null) {
 }
 
 export function PhysicianConsultationOutcomePage() {
-  const patientDraft = useAppStore((state) => state.patientDraft);
-  const consultationSession = useAppStore((state) => state.consultationSession);
-  const consultationDraft = useAppStore((state) => state.consultationDraft);
-  const resetConsultationSession = useAppStore(
-    (state) => state.resetConsultationSession,
+  const { consultationId } = useParams();
+  const consultationQuery = useQuery({
+    queryKey: consultationId
+      ? queryKeys.consultation(consultationId)
+      : ["consultation", "missing"],
+    queryFn: () => getConsultation(consultationId as string),
+    enabled: Boolean(consultationId),
+  });
+  const patientsQuery = useQuery({
+    queryKey: queryKeys.patients(),
+    queryFn: () => listPatients(),
+  });
+
+  const consultation = consultationQuery.data;
+  const patient = patientsQuery.data?.find(
+    (item) => item.id === consultation?.patientId,
   );
 
   const nextAction = consultationNextActions.find(
-    (option) => option.value === consultationSession.nextAction,
+    (option) => option.value === consultation?.nextAction,
   );
 
-  if (consultationSession.status !== "completed") {
+  if (!consultation || consultation.status !== "completed") {
     return (
       <Card className="space-y-5">
         <div>
@@ -54,14 +70,28 @@ export function PhysicianConsultationOutcomePage() {
 
         <div className="flex flex-wrap gap-3">
           <Button asChild>
-            <Link to="/physician/consultation/active">
+            <Link
+              to={
+                consultationId
+                  ? `/physician/consultation/${consultationId}/active`
+                  : "/physician/queue"
+              }
+            >
               Open active consultation
               <Stethoscope className="h-4 w-4" />
             </Link>
           </Button>
 
           <Button variant="secondary" asChild>
-            <Link to="/physician/consultation">Back to readiness</Link>
+            <Link
+              to={
+                consultationId
+                  ? `/physician/consultation/${consultationId}`
+                  : "/physician/queue"
+              }
+            >
+              Back to readiness
+            </Link>
           </Button>
         </div>
       </Card>
@@ -75,11 +105,15 @@ export function PhysicianConsultationOutcomePage() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">
             Consultation outcome
           </p>
-          <h2 className="mt-2 text-3xl text-ink">{patientDraft.fullName}</h2>
+          <h2 className="mt-2 text-3xl text-ink">
+            {patient
+              ? `${patient.firstName} ${patient.lastName}`
+              : consultation.patientId}
+          </h2>
         </div>
 
         <Button variant="ghost" asChild>
-          <Link to="/physician/consultation">
+          <Link to={`/physician/consultation/${consultation.id}`}>
             <ChevronLeft className="h-4 w-4" />
             Back to consultation
           </Link>
@@ -105,7 +139,7 @@ export function PhysicianConsultationOutcomePage() {
                   Clinician
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {consultationSession.clinicianName}
+                  {consultation.clinicianName}
                 </dd>
               </div>
               <div>
@@ -113,7 +147,7 @@ export function PhysicianConsultationOutcomePage() {
                   Started at
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {formatSessionTime(consultationSession.startedAt)}
+                  {formatSessionTime(consultation.startedAt)}
                 </dd>
               </div>
               <div>
@@ -121,7 +155,7 @@ export function PhysicianConsultationOutcomePage() {
                   Completed at
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {formatSessionTime(consultationSession.completedAt)}
+                  {formatSessionTime(consultation.completedAt)}
                 </dd>
               </div>
               <div>
@@ -179,29 +213,32 @@ export function PhysicianConsultationOutcomePage() {
           <div className="space-y-4 text-sm leading-6 text-muted">
             <div>
               <p className="font-semibold text-ink">Chief complaint</p>
-              <p>{patientDraft.symptoms}</p>
+              <p>
+                {consultation.draftNote?.historyOfPresentIllness ||
+                  "No complaint note recorded."}
+              </p>
             </div>
 
             <div>
               <p className="font-semibold text-ink">Assessment</p>
               <p>
-                {consultationDraft.assessment ||
-                  "No assessment has been recorded for this prototype visit yet."}
+                {consultation.draftNote?.assessment ||
+                  "No assessment has been recorded for this visit yet."}
               </p>
             </div>
 
             <div>
               <p className="font-semibold text-ink">Plan</p>
               <p>
-                {consultationDraft.carePlan ||
-                  "No plan has been recorded for this prototype visit yet."}
+                {consultation.draftNote?.carePlan ||
+                  "No plan has been recorded for this visit yet."}
               </p>
             </div>
 
             <div>
               <p className="font-semibold text-ink">Follow-up instructions</p>
               <p>
-                {consultationDraft.followUpInstructions ||
+                {consultation.draftNote?.followUpInstructions ||
                   "No follow-up instructions have been documented yet."}
               </p>
             </div>
@@ -212,14 +249,8 @@ export function PhysicianConsultationOutcomePage() {
               <Link to="/physician/queue">Return to queue</Link>
             </Button>
 
-            <Button
-              variant="secondary"
-              onClick={resetConsultationSession}
-              asChild
-            >
-              <Link to="/physician/consultation">
-                Prepare next consultation
-              </Link>
+            <Button variant="secondary" asChild>
+              <Link to="/physician/dashboard">Prepare next consultation</Link>
             </Button>
           </div>
         </Card>

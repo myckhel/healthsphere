@@ -10,32 +10,55 @@ export function AppShell() {
     (state) => state.patientDraft.preferredLanguage,
   );
 
+  const isReceptionRoute = location.pathname.startsWith("/reception");
   const isPatientRoute = location.pathname.startsWith("/patient");
   const isPhysicianRoute = location.pathname.startsWith("/physician");
+  const isOutreachRoute = location.pathname.startsWith("/outreach");
 
-  const routeStatus = isPhysicianRoute
+  const routeStatus = isReceptionRoute
     ? {
-        label: "Synced for consultation",
-        detail: "Patient summary is ready for physician review.",
-        tone: "success" as const,
+        label: "Manual record review",
+        detail:
+          "Front-desk staff can register patients and approve captured records from the API-backed queue.",
+        tone: "review" as const,
       }
-    : location.pathname === "/patient/next-steps"
+    : isPhysicianRoute
       ? {
-          label: "Syncing visit summary",
-          detail: "Queue updates will refresh when the network is stable.",
-          tone: "review" as const,
+          label: "Consultation workflow",
+          detail:
+            "Queue status, records, and clinician notes stay in sync with the backend contract.",
+          tone: "success" as const,
         }
-      : {
-          label: "Offline ready",
-          detail: "Forms remain usable on slow or unstable connections.",
-          tone: "info" as const,
-        };
+      : isOutreachRoute
+        ? {
+            label: "Scoped for later",
+            detail:
+              "Follow-up automation is not enabled in this MVP, so this surface stays informational.",
+            tone: "review" as const,
+          }
+        : location.pathname === "/patient/next-steps"
+          ? {
+              label: "Queue confirmed",
+              detail:
+                "The patient's live queue status is pulled from the backend and refreshed through React Query.",
+              tone: "review" as const,
+            }
+          : {
+              label: "Clinic MVP",
+              detail:
+                "The app is focused on real intake, queue, consultation, and record-review workflows.",
+              tone: "info" as const,
+            };
 
-  const routeLabel = isPhysicianRoute
-    ? "Physician workspace"
-    : isPatientRoute
-      ? "Patient journey"
-      : "Prototype overview";
+  const routeLabel = isReceptionRoute
+    ? "Reception operations"
+    : isPhysicianRoute
+      ? "Physician workspace"
+      : isOutreachRoute
+        ? "Outreach scope"
+        : isPatientRoute
+          ? "Patient journey"
+          : "Clinic operations overview";
 
   return (
     <div className="min-h-screen text-ink">
@@ -47,7 +70,7 @@ export function AppShell() {
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand">
                   HealthSphere
                 </p>
-                <StatusPill tone="neutral">UI-only MVP prototype</StatusPill>
+                <StatusPill tone="neutral">Functional frontend MVP</StatusPill>
               </div>
 
               <div>
@@ -96,7 +119,21 @@ export function AppShell() {
             </NavLink>
 
             <NavLink
-              to="/patient/onboarding"
+              to="/reception/dashboard"
+              className={({ isActive }) =>
+                cn(
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  isActive || isReceptionRoute
+                    ? "bg-brand text-white shadow-brand"
+                    : "bg-white/85 text-ink hover:bg-brand-soft",
+                )
+              }
+            >
+              Reception
+            </NavLink>
+
+            <NavLink
+              to="/patient/triage"
               className={({ isActive }) =>
                 cn(
                   "rounded-full px-4 py-2 text-sm font-medium transition",
@@ -106,11 +143,11 @@ export function AppShell() {
                 )
               }
             >
-              Patient flow
+              Patient triage
             </NavLink>
 
             <NavLink
-              to="/physician/queue"
+              to="/physician/dashboard"
               className={({ isActive }) =>
                 cn(
                   "rounded-full px-4 py-2 text-sm font-medium transition",
@@ -120,7 +157,21 @@ export function AppShell() {
                 )
               }
             >
-              Physician view
+              Physician
+            </NavLink>
+
+            <NavLink
+              to="/outreach/dashboard"
+              className={({ isActive }) =>
+                cn(
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  isActive || isOutreachRoute
+                    ? "bg-brand text-white shadow-brand"
+                    : "bg-white/85 text-ink hover:bg-brand-soft",
+                )
+              }
+            >
+              Outreach
             </NavLink>
           </nav>
         </header>
@@ -130,9 +181,9 @@ export function AppShell() {
         </main>
 
         <footer className="pb-4 text-sm text-muted">
-          This prototype shows only the patient onboarding and physician
-          consultation-start experience. All AI outputs remain drafts for human
-          review.
+          HealthSphere keeps records, triage suggestions, and consultation notes
+          visible for human review. Unsupported capabilities stay clearly out of
+          scope instead of being implied in the UI.
         </footer>
       </div>
     </div>

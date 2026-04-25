@@ -1,48 +1,107 @@
-import { useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Languages, ShieldCheck } from "lucide-react";
+import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
+import { z } from "zod";
 import {
   patientFlowSteps,
   patientLanguages,
   visitTypes,
-} from "@/app/prototype-content";
+} from "@/app/app-content";
+import {
+  createPatient,
+  getApiErrorMessage,
+  queryKeys,
+} from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
 import { Input } from "@/shared/ui/input";
 import { StepProgress } from "@/shared/ui/step-progress";
 import { useAppStore } from "@/shared/state/app-store";
+import { Textarea } from "@/shared/ui/textarea";
+
+const onboardingSchema = z.object({
+  firstName: z.string().trim().min(1, "First name is required."),
+  lastName: z.string().trim().min(1, "Last name is required."),
+  phoneNumber: z
+    .string()
+    .trim()
+    .min(7, "Enter a phone number the clinic can reach."),
+  externalId: z.string().trim().max(64).optional(),
+  dateOfBirth: z.string().optional(),
+  sexAtBirth: z.string().trim().max(32).optional(),
+  preferredLanguage: z.string().trim().min(1),
+  visitType: z.string().trim().min(1),
+  consentGranted: z.boolean().refine((value) => value, {
+    message: "Consent is required before the visit can continue.",
+  }),
+  notes: z.string().max(2000).optional(),
+});
+
+type OnboardingFormValues = z.infer<typeof onboardingSchema>;
 
 export function PatientOnboardingPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const patientDraft = useAppStore((state) => state.patientDraft);
   const updatePatientDraft = useAppStore((state) => state.updatePatientDraft);
-
-  const [fullName, setFullName] = useState(patientDraft.fullName);
-  const [patientId, setPatientId] = useState(patientDraft.patientId);
-  const [phone, setPhone] = useState(patientDraft.phone);
-  const [preferredLanguage, setPreferredLanguage] = useState(
-    patientDraft.preferredLanguage,
+  const setSelectedPatientId = useAppStore(
+    (state) => state.setSelectedPatientId,
   );
-  const [visitType, setVisitType] = useState(patientDraft.visitType);
-  const [consentGiven, setConsentGiven] = useState(patientDraft.consentGiven);
+  const setSelectedTriageCaseId = useAppStore(
+    (state) => state.setSelectedTriageCaseId,
+  );
 
-  const canContinue =
-    fullName.trim().length > 1 && phone.trim().length > 6 && consentGiven;
+  const {
+    handleSubmit,
+    register,
+    setValue,
+    control,
+    formState: { errors },
+  } = useForm<OnboardingFormValues>({
+    resolver: zodResolver(onboardingSchema),
+    defaultValues: {
+      firstName: patientDraft.firstName,
+      lastName: patientDraft.lastName,
+      phoneNumber: patientDraft.phoneNumber,
+      externalId: patientDraft.externalId,
+      dateOfBirth: patientDraft.dateOfBirth,
+      sexAtBirth: patientDraft.sexAtBirth,
+      preferredLanguage: patientDraft.preferredLanguage,
+      visitType: patientDraft.visitType,
+      consentGranted: patientDraft.consentGranted,
+      notes: patientDraft.notes,
+    },
+  });
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const preferredLanguage = useWatch({ control, name: "preferredLanguage" });
+  const visitType = useWatch({ control, name: "visitType" });
+  const consentGranted = useWatch({ control, name: "consentGranted" });
 
-    updatePatientDraft({
-      fullName,
-      patientId: patientId.trim(),
-      phone,
-      preferredLanguage,
-      visitType,
-      consentGiven,
+  const createPatientMutation = useMutation({
+    mutationFn: createPatient,
+    onSuccess: async (patient) => {
+      setSelectedPatientId(patient.id);
+      setSelectedTriageCaseId(null);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.patients() });
+      navigate("/patient/intake");
+    },
+  });
+
+  function onSubmit(values: OnboardingFormValues) {
+    updatePatientDraft(values);
+    createPatientMutation.mutate({
+      externalId: values.externalId?.trim() || null,
+      firstName: values.firstName.trim(),
+      lastName: values.lastName.trim(),
+      dateOfBirth: values.dateOfBirth?.trim() || null,
+      sexAtBirth: values.sexAtBirth?.trim() || null,
+      phoneNumber: values.phoneNumber.trim(),
+      consentStatus: values.consentGranted ? "granted" : "pending",
+      notes: values.notes?.trim() || null,
     });
-
-    navigate("/patient/intake");
   }
 
   return (
@@ -69,20 +128,46 @@ export function PatientOnboardingPage() {
             </Button>
           </div>
 
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <div className="space-y-3">
-              <label
-                className="block text-sm font-medium text-ink"
-                htmlFor="full-name"
-              >
-                Full name
-              </label>
-              <Input
-                id="full-name"
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                placeholder="Enter your full name"
-              />
+          <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
+            {createPatientMutation.isError ? (
+              <InfoBanner title="Unable to create patient" tone="review">
+                {getApiErrorMessage(
+                  createPatientMutation.error,
+                  "Check the patient details and try again.",
+                )}
+              </InfoBanner>
+            ) : null}
+
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div className="space-y-3">
+                <label
+                  className="block text-sm font-medium text-ink"
+                  htmlFor="first-name"
+                >
+                  First name
+                </label>
+                <Input id="first-name" {...register("firstName")} />
+                {errors.firstName ? (
+                  <p className="text-sm text-warning">
+                    {errors.firstName.message}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="space-y-3">
+                <label
+                  className="block text-sm font-medium text-ink"
+                  htmlFor="last-name"
+                >
+                  Last name
+                </label>
+                <Input id="last-name" {...register("lastName")} />
+                {errors.lastName ? (
+                  <p className="text-sm text-warning">
+                    {errors.lastName.message}
+                  </p>
+                ) : null}
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -92,31 +177,51 @@ export function PatientOnboardingPage() {
               >
                 Phone number
               </label>
-              <Input
-                id="phone-number"
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-                placeholder="Enter a number we can reach"
-              />
+              <Input id="phone-number" {...register("phoneNumber")} />
+              {errors.phoneNumber ? (
+                <p className="text-sm text-warning">
+                  {errors.phoneNumber.message}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div className="space-y-3">
+                <label
+                  className="block text-sm font-medium text-ink"
+                  htmlFor="date-of-birth"
+                >
+                  Date of birth
+                </label>
+                <Input
+                  id="date-of-birth"
+                  type="date"
+                  {...register("dateOfBirth")}
+                />
+              </div>
+
+              <div className="space-y-3">
+                <label
+                  className="block text-sm font-medium text-ink"
+                  htmlFor="sex-at-birth"
+                >
+                  Sex at birth
+                </label>
+                <Input id="sex-at-birth" {...register("sexAtBirth")} />
+              </div>
             </div>
 
             <div className="space-y-3">
               <label
                 className="block text-sm font-medium text-ink"
-                htmlFor="patient-id"
+                htmlFor="external-id"
               >
-                Patient ID number if you have one
+                Existing patient ID if available
               </label>
-              <Input
-                id="patient-id"
-                value={patientId}
-                onChange={(event) => setPatientId(event.target.value)}
-                placeholder="Enter your clinic patient ID"
-              />
+              <Input id="external-id" {...register("externalId")} />
               <p className="text-sm leading-6 text-muted">
-                This number helps the clinic link your historical records. If
-                you do not have it, the physician will assign a new one during
-                your visit.
+                If the patient already has a clinic record, enter the existing
+                ID so staff can catch duplicates before the consultation begins.
               </p>
             </div>
 
@@ -127,7 +232,7 @@ export function PatientOnboardingPage() {
                   <button
                     key={language}
                     type="button"
-                    onClick={() => setPreferredLanguage(language)}
+                    onClick={() => setValue("preferredLanguage", language)}
                     className={
                       preferredLanguage === language
                         ? "rounded-[1.5rem] border border-brand bg-brand-soft px-4 py-3 text-left text-sm font-semibold text-brand-strong"
@@ -147,7 +252,7 @@ export function PatientOnboardingPage() {
                   <button
                     key={type}
                     type="button"
-                    onClick={() => setVisitType(type)}
+                    onClick={() => setValue("visitType", type)}
                     className={
                       visitType === type
                         ? "rounded-[1.5rem] border border-brand bg-brand-soft px-4 py-3 text-left text-sm font-semibold text-brand-strong"
@@ -160,22 +265,36 @@ export function PatientOnboardingPage() {
               </div>
             </div>
 
+            <div className="space-y-3">
+              <label
+                className="block text-sm font-medium text-ink"
+                htmlFor="notes"
+              >
+                Intake notes for staff
+              </label>
+              <Textarea id="notes" {...register("notes")} />
+            </div>
+
             <label className="flex items-start gap-3 rounded-[1.5rem] border border-line bg-white/80 px-4 py-4 text-sm leading-6 text-muted">
               <input
                 type="checkbox"
                 className="mt-1 h-4 w-4 rounded border-line text-brand"
-                checked={consentGiven}
-                onChange={(event) => setConsentGiven(event.target.checked)}
+                {...register("consentGranted")}
               />
               <span>
                 I understand this information will be used only to support my
                 clinic visit and handoff to the physician.
               </span>
             </label>
+            {errors.consentGranted ? (
+              <p className="text-sm text-warning">
+                {errors.consentGranted.message}
+              </p>
+            ) : null}
 
             <Button
               className="w-full sm:w-auto"
-              disabled={!canContinue}
+              disabled={!consentGranted || createPatientMutation.isPending}
               type="submit"
             >
               Continue to symptoms
@@ -188,9 +307,8 @@ export function PatientOnboardingPage() {
             title="Why this screen is short"
             icon={<ShieldCheck className="h-4 w-4 text-brand" />}
           >
-            HealthSphere asks only for the information needed to start care. The
-            goal is to reduce waiting room friction, not add more clinic
-            paperwork.
+            HealthSphere asks only for the information needed to create a
+            patient record and move that patient safely into intake.
           </InfoBanner>
 
           <Card className="space-y-4">

@@ -1,89 +1,74 @@
 import { create } from "zustand";
 
 export type PatientDraft = {
-  fullName: string;
-  patientId: string;
-  phone: string;
+  firstName: string;
+  lastName: string;
+  externalId: string;
+  phoneNumber: string;
   preferredLanguage: string;
   visitType: string;
-  symptoms: string;
+  dateOfBirth: string;
+  sexAtBirth: string;
+  consentGranted: boolean;
+  notes: string;
+};
+
+export type IntakeDraft = {
+  presentingComplaint: string;
   symptomDuration: string;
-  consentGiven: boolean;
-};
-
-export type ConsultationStatus = "idle" | "in-progress" | "completed";
-
-export type ConsultationNextAction =
-  | "follow-up-booking"
-  | "nurse-handoff"
-  | "referral"
-  | "discharge";
-
-export type ConsultationDraft = {
-  historyOfPresentIllness: string;
-  redFlags: string;
-  examFindings: string;
-  assessment: string;
-  carePlan: string;
-  followUpInstructions: string;
-};
-
-export type ConsultationSession = {
-  clinicianName: string;
-  status: ConsultationStatus;
-  startedAt: string | null;
-  completedAt: string | null;
-  nextAction: ConsultationNextAction | null;
+  symptomsText: string;
+  urgencyLevel: string;
 };
 
 type AppState = {
   clinicName: string;
+  clinicianName: string;
   patientDraft: PatientDraft;
-  consultationSession: ConsultationSession;
-  consultationDraft: ConsultationDraft;
+  intakeDraft: IntakeDraft;
+  selectedPatientId: string | null;
+  selectedTriageCaseId: string | null;
+  activeConsultationId: string | null;
+  selectedRecordId: string | null;
   updatePatientDraft: (draft: Partial<PatientDraft>) => void;
-  startConsultation: () => void;
-  updateConsultationDraft: (draft: Partial<ConsultationDraft>) => void;
-  setConsultationNextAction: (nextAction: ConsultationNextAction) => void;
-  completeConsultation: (nextAction: ConsultationNextAction) => void;
-  resetConsultationSession: () => void;
-  resetPatientDraft: () => void;
+  updateIntakeDraft: (draft: Partial<IntakeDraft>) => void;
+  setPreferredLanguage: (language: string) => void;
+  setSelectedPatientId: (patientId: string | null) => void;
+  setSelectedTriageCaseId: (triageCaseId: string | null) => void;
+  setActiveConsultationId: (consultationId: string | null) => void;
+  setSelectedRecordId: (recordId: string | null) => void;
+  setClinicianName: (clinicianName: string) => void;
+  resetVisitFlow: () => void;
 };
 
 const defaultPatientDraft: PatientDraft = {
-  fullName: "Amina Bello",
-  patientId: "",
-  phone: "+234 803 000 0142",
+  firstName: "Amina",
+  lastName: "Bello",
+  externalId: "",
+  phoneNumber: "+234 803 000 0142",
   preferredLanguage: "English",
   visitType: "General consultation",
-  symptoms:
-    "Fever and headache for three days. Feeling weaker since yesterday.",
+  dateOfBirth: "",
+  sexAtBirth: "female",
+  consentGranted: true,
+  notes: "",
+};
+
+const defaultIntakeDraft: IntakeDraft = {
+  presentingComplaint: "Fever and headache for three days.",
   symptomDuration: "2-3 days",
-  consentGiven: true,
-};
-
-const defaultConsultationDraft: ConsultationDraft = {
-  historyOfPresentIllness: "",
-  redFlags: "",
-  examFindings: "",
-  assessment: "",
-  carePlan: "",
-  followUpInstructions: "",
-};
-
-const defaultConsultationSession: ConsultationSession = {
-  clinicianName: "Dr. Sadiq Musa",
-  status: "idle",
-  startedAt: null,
-  completedAt: null,
-  nextAction: null,
+  symptomsText: "Fever, headache, weakness",
+  urgencyLevel: "routine",
 };
 
 export const useAppStore = create<AppState>((set) => ({
   clinicName: "Maitama Community Health Centre",
+  clinicianName: "Dr. Sadiq Musa",
   patientDraft: defaultPatientDraft,
-  consultationSession: defaultConsultationSession,
-  consultationDraft: defaultConsultationDraft,
+  intakeDraft: defaultIntakeDraft,
+  selectedPatientId: null,
+  selectedTriageCaseId: null,
+  activeConsultationId: null,
+  selectedRecordId: null,
   updatePatientDraft: (draft) =>
     set((state) => ({
       patientDraft: {
@@ -91,48 +76,34 @@ export const useAppStore = create<AppState>((set) => ({
         ...draft,
       },
     })),
-  startConsultation: () =>
+  updateIntakeDraft: (draft) =>
     set((state) => ({
-      consultationSession: {
-        ...state.consultationSession,
-        status: "in-progress",
-        startedAt: state.consultationSession.startedAt ?? new Date().toISOString(),
-        completedAt: null,
-        nextAction: null,
-      },
-    })),
-  updateConsultationDraft: (draft) =>
-    set((state) => ({
-      consultationDraft: {
-        ...state.consultationDraft,
+      intakeDraft: {
+        ...state.intakeDraft,
         ...draft,
       },
     })),
-  setConsultationNextAction: (nextAction) =>
+  setPreferredLanguage: (preferredLanguage) =>
     set((state) => ({
-      consultationSession: {
-        ...state.consultationSession,
-        nextAction,
+      patientDraft: {
+        ...state.patientDraft,
+        preferredLanguage,
       },
     })),
-  completeConsultation: (nextAction) =>
-    set((state) => ({
-      consultationSession: {
-        ...state.consultationSession,
-        status: "completed",
-        completedAt: new Date().toISOString(),
-        nextAction,
-      },
-    })),
-  resetConsultationSession: () =>
-    set({
-      consultationSession: defaultConsultationSession,
-      consultationDraft: defaultConsultationDraft,
-    }),
-  resetPatientDraft: () =>
+  setSelectedPatientId: (selectedPatientId) => set({ selectedPatientId }),
+  setSelectedTriageCaseId: (selectedTriageCaseId) =>
+    set({ selectedTriageCaseId }),
+  setActiveConsultationId: (activeConsultationId) =>
+    set({ activeConsultationId }),
+  setSelectedRecordId: (selectedRecordId) => set({ selectedRecordId }),
+  setClinicianName: (clinicianName) => set({ clinicianName }),
+  resetVisitFlow: () =>
     set({
       patientDraft: defaultPatientDraft,
-      consultationSession: defaultConsultationSession,
-      consultationDraft: defaultConsultationDraft,
+      intakeDraft: defaultIntakeDraft,
+      selectedPatientId: null,
+      selectedTriageCaseId: null,
+      activeConsultationId: null,
+      selectedRecordId: null,
     }),
 }));

@@ -1,6 +1,14 @@
 import { ChevronLeft, FileText, ShieldAlert, Stethoscope } from "lucide-react";
-import { Link } from "react-router-dom";
-import { useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  getConsultation,
+  listPatients,
+  listRecords,
+  listTriageCases,
+  queryKeys,
+  updateConsultation,
+} from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
@@ -9,36 +17,113 @@ import { StatusPill } from "@/shared/ui/status-pill";
 
 export function PhysicianConsultationPage() {
   const navigate = useNavigate();
-  const patientDraft = useAppStore((state) => state.patientDraft);
-  const consultationSession = useAppStore((state) => state.consultationSession);
-  const startConsultation = useAppStore((state) => state.startConsultation);
-  const firstName = patientDraft.fullName.split(" ")[0];
+  const queryClient = useQueryClient();
+  const { consultationId } = useParams();
+  const setActiveConsultationId = useAppStore(
+    (state) => state.setActiveConsultationId,
+  );
+  const clinicianName = useAppStore((state) => state.clinicianName);
+
+  const consultationQuery = useQuery({
+    queryKey: consultationId
+      ? queryKeys.consultation(consultationId)
+      : ["consultation", "missing"],
+    queryFn: () => getConsultation(consultationId as string),
+    enabled: Boolean(consultationId),
+  });
+  const patientsQuery = useQuery({
+    queryKey: queryKeys.patients(),
+    queryFn: () => listPatients(),
+  });
+  const triageCasesQuery = useQuery({
+    queryKey: queryKeys.triageCases,
+    queryFn: listTriageCases,
+  });
+  const recordsQuery = useQuery({
+    queryKey: queryKeys.records(consultationQuery.data?.patientId),
+    queryFn: () => listRecords(consultationQuery.data?.patientId),
+    enabled: Boolean(consultationQuery.data?.patientId),
+  });
+
+  const startMutation = useMutation({
+    mutationFn: (id: string) =>
+      updateConsultation(id, {
+        clinicianName,
+        status: "in_progress",
+      }),
+    onSuccess: async (consultation) => {
+      setActiveConsultationId(consultation.id);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.consultation(consultation.id),
+      });
+      navigate(`/physician/consultation/${consultation.id}/active`);
+    },
+  });
+
+  const consultation = consultationQuery.data;
+  const patient = patientsQuery.data?.find(
+    (item) => item.id === consultation?.patientId,
+  );
+  const triageCase = triageCasesQuery.data?.find(
+    (item) => item.id === consultation?.triageCaseId,
+  );
+  const firstName = patient?.firstName ?? "the patient";
+
+  if (!consultationId || consultationQuery.isError || !consultation) {
+    return (
+      <Card className="space-y-5">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">
+            Consultation workspace
+          </p>
+          <h2 className="mt-2 text-3xl text-ink">
+            Open a consultation from the physician queue first.
+          </h2>
+        </div>
+
+        <p className="text-sm leading-6 text-muted">
+          This screen needs a consultation ID from the live queue. Choose a
+          patient from the physician queue to create or resume the correct
+          session.
+        </p>
+
+        <Button asChild>
+          <Link to="/physician/queue">Back to queue</Link>
+        </Button>
+      </Card>
+    );
+  }
 
   const sessionTone =
-    consultationSession.status === "in-progress"
+    consultation.status === "in_progress"
       ? "info"
-      : consultationSession.status === "completed"
+      : consultation.status === "completed"
         ? "review"
         : "success";
 
   const sessionLabel =
-    consultationSession.status === "in-progress"
+    consultation.status === "in_progress"
       ? "Consultation in progress"
-      : consultationSession.status === "completed"
+      : consultation.status === "completed"
         ? "Consultation completed"
         : "Consultation ready";
 
   function handleConsultationAction() {
-    if (consultationSession.status === "completed") {
-      navigate("/physician/consultation/outcome");
+    if (!consultation) {
       return;
     }
 
-    if (consultationSession.status !== "in-progress") {
-      startConsultation();
+    if (consultation.status === "completed") {
+      navigate(`/physician/consultation/${consultation.id}/outcome`);
+      return;
     }
 
-    navigate("/physician/consultation/active");
+    if (consultation.status === "in_progress") {
+      navigate(`/physician/consultation/${consultation.id}/active`);
+      return;
+    }
+
+    startMutation.mutate(consultation.id);
   }
 
   return (
@@ -48,7 +133,11 @@ export function PhysicianConsultationPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">
             Consultation workspace
           </p>
-          <h2 className="mt-2 text-3xl text-ink">{patientDraft.fullName}</h2>
+          <h2 className="mt-2 text-3xl text-ink">
+            {patient
+              ? `${patient.firstName} ${patient.lastName}`
+              : consultation.patientId}
+          </h2>
         </div>
 
         <Button variant="ghost" asChild>
@@ -80,7 +169,7 @@ export function PhysicianConsultationPage() {
                   Patient ID number
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {patientDraft.patientId || "Needs physician assignment"}
+                  {patient?.externalId || "No external ID supplied"}
                 </dd>
               </div>
               <div>
@@ -88,7 +177,7 @@ export function PhysicianConsultationPage() {
                   Preferred language
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {patientDraft.preferredLanguage}
+                  {useAppStore.getState().patientDraft.preferredLanguage}
                 </dd>
               </div>
               <div>
@@ -96,7 +185,7 @@ export function PhysicianConsultationPage() {
                   Phone
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {patientDraft.phone}
+                  {patient?.phoneNumber || "Not provided"}
                 </dd>
               </div>
               <div>
@@ -104,15 +193,15 @@ export function PhysicianConsultationPage() {
                   Visit type
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {patientDraft.visitType}
+                  {triageCase?.recommendedQueue || "General consultation"}
                 </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-[0.18em] text-muted">
-                  Symptom duration
+                  Triage source
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {patientDraft.symptomDuration}
+                  {triageCase?.source || "intake"}
                 </dd>
               </div>
               <div className="sm:col-span-2">
@@ -120,7 +209,8 @@ export function PhysicianConsultationPage() {
                   Patient summary
                 </dt>
                 <dd className="mt-1 text-sm leading-6 text-muted">
-                  {patientDraft.symptoms}
+                  {triageCase?.presentingComplaint ||
+                    "No triage complaint found."}
                 </dd>
               </div>
             </dl>
@@ -154,8 +244,8 @@ export function PhysicianConsultationPage() {
                 complaint again in their own words.
               </p>
               <p>
-                Confirm the existing patient ID or assign a new one so the
-                visit can be linked to historical clinic records.
+                Confirm the existing patient ID or assign a new one so the visit
+                can be linked to historical clinic records.
               </p>
               <p>
                 Check for urgent red flags before using the draft note to
@@ -190,7 +280,8 @@ export function PhysicianConsultationPage() {
               <div>
                 <p className="text-sm font-semibold text-ink">Draft summary</p>
                 <p className="text-sm text-muted">
-                  Generated from patient onboarding and symptom intake
+                  Generated from patient onboarding, triage intake, and saved
+                  record context
                 </p>
               </div>
             </div>
@@ -198,7 +289,9 @@ export function PhysicianConsultationPage() {
             <div className="mt-5 space-y-5 text-sm leading-6 text-muted">
               <div>
                 <p className="font-semibold text-ink">Chief concern</p>
-                <p>{patientDraft.symptoms}</p>
+                <p>
+                  {triageCase?.presentingComplaint || "No complaint captured."}
+                </p>
               </div>
 
               <div>
@@ -206,29 +299,41 @@ export function PhysicianConsultationPage() {
                   Context available before consultation
                 </p>
                 <p>
-                  {firstName} selected {patientDraft.visitType.toLowerCase()}{" "}
-                  and reported symptoms present for{" "}
-                  {patientDraft.symptomDuration.toLowerCase()}.
+                  {firstName} is linked to {recordsQuery.data?.length ?? 0}{" "}
+                  saved record(s) and an active triage case. Review the record
+                  list and confirm the complaint directly with the patient
+                  before documenting a final assessment.
                 </p>
               </div>
 
               <div>
                 <p className="font-semibold text-ink">Suggested opening note</p>
                 <p>
-                  Patient presents for an initial review after completing the
-                  intake flow. Clinician should verify symptom severity, ask
-                  targeted follow-up questions, and confirm the final plan after
-                  assessment.
+                  Patient presents for clinician review after intake. Confirm
+                  symptom severity, check danger signs, and use any attached
+                  records as context rather than final truth.
+                </p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Available records</p>
+                <p>
+                  {recordsQuery.data?.length
+                    ? recordsQuery.data.map((record) => record.title).join(", ")
+                    : "No records attached yet."}
                 </p>
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={handleConsultationAction}>
-              {consultationSession.status === "in-progress"
+            <Button
+              onClick={handleConsultationAction}
+              disabled={startMutation.isPending}
+            >
+              {consultation.status === "in_progress"
                 ? "Resume consultation"
-                : consultationSession.status === "completed"
+                : consultation.status === "completed"
                   ? "Review outcome"
                   : "Start consultation"}
               <Stethoscope className="h-4 w-4" />

@@ -1,73 +1,56 @@
-# React + TypeScript + Vite
+# HealthSphere Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This frontend is the clinic workflow surface for HealthSphere AI. It is a Vite + React 19 + TypeScript application that now uses the existing backend API for patients, triage, consultations, and records.
 
-Currently, two official plugins are available:
+## What the MVP covers
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- patient onboarding backed by `POST /patients`
+- symptom intake backed by `POST /triage/cases`
+- live queue visibility backed by `GET /triage/queue`
+- consultation creation, resume, editing, and completion backed by `GET/POST/PATCH /consultations`
+- manual record capture and review backed by `GET/POST/PATCH /records`
 
-## React Compiler
+Out of scope for this MVP:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- appointments
+- binary uploads and OCR capture in the frontend workflow
+- live voice capture
+- automated outreach actions
 
-## Expanding the ESLint configuration
+## Local development
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Install dependencies and run the app:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+bun install
+bun run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The frontend expects the backend at `http://localhost:8000/api/v1` by default.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Environment variables
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+You can override the local API and stub headers with Vite env vars:
+
+```bash
+VITE_API_BASE_URL=http://localhost:8000/api/v1
+VITE_ACTOR_ID=frontend-staff-01
+VITE_ACTOR_ROLE=staff
+VITE_CLINIC_ID=11111111-1111-1111-1111-111111111111
+```
+
+These map to the backend's current local-development stub headers:
+
+- `X-HealthSphere-Actor-Id`
+- `X-HealthSphere-Actor-Role`
+- `X-HealthSphere-Clinic-Id`
+
+## Quality checks
+
+Run the expected verification commands from this folder:
+
+```bash
+bun run typecheck
+bun run lint
+bun run build
 ```
