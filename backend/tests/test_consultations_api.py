@@ -275,3 +275,99 @@ async def test_high_risk_triage_case_cannot_be_completed_as_discharge(client, db
 
     assert response.status_code == 400
     assert response.json()["message"] == "High-risk triage cases cannot be discharged without explicit escalation."
+
+
+async def test_regenerate_consultation_draft_assessment_updates_package(client, db_session) -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    patient = Patient(
+        id=TEST_PATIENT_ID,
+        clinic_id=TEST_CLINIC_ID,
+        first_name="Ada",
+        last_name="Okafor",
+        consent_status="granted",
+    )
+    triage_case = TriageCase(
+        id=TEST_TRIAGE_ID,
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        source="intake",
+        status="in_consultation",
+        urgency_level="routine",
+        presenting_complaint="Headache and dizziness for three days",
+        symptoms=["headache", "dizziness"],
+        recommended_queue="general-physician",
+        review_status="pending",
+        created_at=now,
+        updated_at=now,
+    )
+    consultation = ConsultationSession(
+        id=uuid.uuid4(),
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        triage_case_id=TEST_TRIAGE_ID,
+        status="in_progress",
+        clinician_id="clinician-123",
+        clinician_name="Dr. Sadiq Musa",
+        draft_note={
+            "draft_assessment_package": {
+                "source": "fallback",
+                "generated_at": (now - dt.timedelta(minutes=10)).isoformat(),
+                "review_status": "needs_review",
+                "complaint_summary": "Older complaint summary",
+                "subjective": "Older subjective",
+                "assessment": "Older assessment",
+                "plan": "Older plan",
+                "follow_up_questions": [],
+                "next_action_suggestion": "follow-up-booking",
+            },
+        },
+        started_at=now,
+    )
+    consultation.patient = patient
+    consultation.triage_case = triage_case
+
+    record = Record(
+        id=uuid.uuid4(),
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        title="Recent vitals note",
+        record_type="visit_note",
+        source="manual",
+        review_status="approved",
+        created_at=now,
+        updated_at=now,
+    )
+    chunk = RecordChunk(
+        id=uuid.uuid4(),
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        record_id=record.id,
+        chunk_index=0,
+        content="Patient previously reported dizziness and elevated blood pressure.",
+        embedding=EmbeddingService().embed_text("dizziness elevated blood pressure"),
+        created_at=now,
+        updated_at=now,
+    )
+    chunk.record = record
+
+    db_session.scalar.return_value = consultation
+    db_session.scalars.return_value = type(
+        "ScalarResult",
+        (),
+        {"all": lambda self: [chunk]},
+    )()
+
+    response = await client.post(
+        f"/api/v1/consultations/{consultation.id}/draft-assessment/regenerate",
+        headers=actor_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["draft_assessment_package"]["complaint_summary"] == "Headache and dizziness for three days"
+    assert body["draft_assessment_package"]["assessment"] != "Older assessment"
+    assert consultation.draft_note["draft_assessment_package"]["complaint_summary"] == "Headache and dizziness for three days"
+
+    audit_event = db_session._added[0]
+    assert audit_event.action == "draft_regenerated"
+    assert audit_event.details["retrieved_context_count"] == 1

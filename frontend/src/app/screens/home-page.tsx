@@ -54,8 +54,8 @@ export function HomePage() {
         <Card className="surface-grid overflow-hidden">
           <div className="max-w-2xl space-y-5">
             <div className="flex flex-wrap items-center gap-2">
-              <StatusPill tone="info">Clinic workflow MVP</StatusPill>
-              <StatusPill tone="success">API-backed routing</StatusPill>
+              <StatusPill tone="info">Clinic workflow</StatusPill>
+              <StatusPill tone="success">Live clinic data</StatusPill>
             </div>
 
             <div className="space-y-3">
@@ -170,7 +170,7 @@ export function HomePage() {
               Why this app stays narrow
             </p>
             <h3 className="text-2xl text-ink">
-              The MVP chooses real workflows over fake capability.
+              This app focuses on real clinic work.
             </h3>
           </div>
 

@@ -162,7 +162,7 @@ export function PatientIntakePage() {
                     Voice capture unavailable
                   </button>
                   <p className="text-xs text-muted">
-                    Typed intake is the supported MVP path. Voice input stays
+                    Typed intake is the supported path today. Voice input stays
                     disabled so the workflow does not imply missing backend
                     functionality.
                   </p>

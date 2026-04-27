@@ -10,9 +10,29 @@ from app.core.database import get_db
 from app.models.audit_event import AuditEvent
 from app.models.patient import Patient
 from app.schemas.common import RequestActor
-from app.schemas.patient import PatientCreateRequest, PatientSummary
+from app.schemas.patient import (
+    PatientCreateRequest,
+    PatientExternalIdLookupResponse,
+    PatientSummary,
+)
 
 router = APIRouter(prefix="/patients", tags=["patients"])
+
+
+def _resolve_lookup_scope(
+    *, actor: RequestActor, external_id: str
+) -> tuple[str, object | None]:
+    normalized_external_id = external_id.strip()
+    if actor.role == "patient":
+        if actor.subject.strip() != normalized_external_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Patient actors may only look up their own external ID.",
+            )
+        return normalized_external_id, None
+
+    clinic_id = require_actor_clinic_scope(actor)
+    return normalized_external_id, clinic_id
 
 
 @router.get("", response_model=list[PatientSummary])
@@ -34,6 +54,25 @@ async def list_patients(
         )
     patients = (await db.scalars(query)).all()
     return [PatientSummary.model_validate(item) for item in patients]
+
+
+@router.get("/lookup", response_model=PatientExternalIdLookupResponse)
+async def lookup_patient_by_external_id(
+    external_id: str = Query(min_length=1),
+    actor: RequestActor = Depends(get_request_actor),
+    db: AsyncSession = Depends(get_db),
+) -> PatientExternalIdLookupResponse:
+    normalized_external_id, clinic_id = _resolve_lookup_scope(
+        actor=actor,
+        external_id=external_id,
+    )
+    query = select(Patient).where(Patient.external_id == normalized_external_id)
+    if clinic_id:
+        query = query.where(Patient.clinic_id == clinic_id)
+    patient = await db.scalar(query)
+    return PatientExternalIdLookupResponse(
+        patient=PatientSummary.model_validate(patient) if patient is not None else None
+    )
 
 
 @router.post("", response_model=PatientSummary, status_code=status.HTTP_201_CREATED)

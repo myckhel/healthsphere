@@ -1,7 +1,13 @@
-import { ChevronLeft, FileText, ShieldAlert, Stethoscope } from "lucide-react";
+import {
+  ChevronLeft,
+  FileText,
+  RefreshCw,
+  ShieldAlert,
+  Stethoscope,
+} from "lucide-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
@@ -15,8 +21,10 @@ import {
   getApiErrorMessage,
   listRecords,
   queryKeys,
+  regenerateConsultationDraftAssessment,
   updateConsultation,
   type ConsultationNextAction,
+  type ConsultationDraftAssessmentPackage,
 } from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
@@ -24,6 +32,7 @@ import { InfoBanner } from "@/shared/ui/info-banner";
 import { Input } from "@/shared/ui/input";
 import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
+import { StepProgress } from "@/shared/ui/step-progress";
 import { Textarea } from "@/shared/ui/textarea";
 
 const consultationSchema = z.object({
@@ -39,6 +48,120 @@ const consultationSchema = z.object({
 });
 
 type ConsultationFormValues = z.infer<typeof consultationSchema>;
+
+type AiPrefillSnapshot = {
+  historyOfPresentIllness: string;
+  assessment: string;
+  carePlan: string;
+  nextAction: ConsultationNextAction | null;
+};
+
+const aiGenerationSteps = [
+  "Collecting patient summary",
+  "Reviewing prior records",
+  "Drafting note scaffold",
+] as const;
+
+function hasClinicianAuthoredText(value: string | undefined) {
+  return Boolean(value?.trim().length);
+}
+
+function normalizeDraftText(value: string | null | undefined) {
+  return value?.trim() ?? "";
+}
+
+function buildAiPrefillSnapshot(
+  draftPackage: ConsultationDraftAssessmentPackage | null | undefined,
+): AiPrefillSnapshot {
+  return {
+    historyOfPresentIllness: normalizeDraftText(draftPackage?.subjective),
+    assessment: normalizeDraftText(draftPackage?.assessment),
+    carePlan: normalizeDraftText(draftPackage?.plan),
+    nextAction: draftPackage?.nextActionSuggestion ?? null,
+  };
+}
+
+function shouldApplyLatestAiValue(
+  currentValue: string | undefined,
+  previousAiValue: string,
+) {
+  const normalizedCurrent = normalizeDraftText(currentValue);
+  if (!normalizedCurrent) {
+    return true;
+  }
+
+  return normalizedCurrent === normalizeDraftText(previousAiValue);
+}
+
+function buildInitialConsultationDraft(
+  draft: ReturnType<typeof createEmptyConsultationDraft> | null | undefined,
+  subjective: string | undefined,
+  assessment: string | undefined,
+  plan: string | undefined,
+) {
+  const baseDraft = draft ?? createEmptyConsultationDraft();
+
+  return {
+    ...baseDraft,
+    historyOfPresentIllness: hasClinicianAuthoredText(
+      baseDraft.historyOfPresentIllness,
+    )
+      ? baseDraft.historyOfPresentIllness
+      : subjective?.trim() || baseDraft.historyOfPresentIllness,
+    assessment: hasClinicianAuthoredText(baseDraft.assessment)
+      ? baseDraft.assessment
+      : assessment?.trim() || baseDraft.assessment,
+    carePlan: hasClinicianAuthoredText(baseDraft.carePlan)
+      ? baseDraft.carePlan
+      : plan?.trim() || baseDraft.carePlan,
+  };
+}
+
+function mergeConsultationDraftWithLatestAi(
+  draft: ReturnType<typeof createEmptyConsultationDraft>,
+  currentValues: ConsultationFormValues,
+  previousAi: AiPrefillSnapshot,
+  nextAi: AiPrefillSnapshot,
+) {
+  return {
+    ...draft,
+    historyOfPresentIllness: shouldApplyLatestAiValue(
+      currentValues.historyOfPresentIllness,
+      previousAi.historyOfPresentIllness,
+    )
+      ? nextAi.historyOfPresentIllness || draft.historyOfPresentIllness
+      : currentValues.historyOfPresentIllness,
+    assessment: shouldApplyLatestAiValue(
+      currentValues.assessment,
+      previousAi.assessment,
+    )
+      ? nextAi.assessment || draft.assessment
+      : currentValues.assessment,
+    carePlan: shouldApplyLatestAiValue(
+      currentValues.carePlan,
+      previousAi.carePlan,
+    )
+      ? nextAi.carePlan || draft.carePlan
+      : currentValues.carePlan,
+  };
+}
+
+function resolveNextActionAfterRegeneration(
+  currentValue: ConsultationNextAction,
+  previousAiValue: ConsultationNextAction | null,
+  nextAiValue: ConsultationNextAction | null,
+  fallbackValue: ConsultationNextAction | null,
+) {
+  if (previousAiValue && currentValue === previousAiValue) {
+    return nextAiValue ?? fallbackValue ?? currentValue;
+  }
+
+  if (!previousAiValue && currentValue === "follow-up-booking") {
+    return nextAiValue ?? fallbackValue ?? currentValue;
+  }
+
+  return currentValue;
+}
 
 function formatSessionTime(value: string | null) {
   if (!value) {
@@ -59,6 +182,17 @@ function formatDate(value: string | null) {
   return new Date(value).toLocaleDateString();
 }
 
+function formatDateTime(value: string | null | undefined) {
+  if (!value) {
+    return "Not generated yet";
+  }
+
+  return new Date(value).toLocaleString([], {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 export function PhysicianConsultationActivePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -66,6 +200,12 @@ export function PhysicianConsultationActivePage() {
   const setClinicianName = useAppStore((state) => state.setClinicianName);
   const localClinicianName = useAppStore((state) => state.clinicianName);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const [aiProgressStep, setAiProgressStep] = useState(0);
+  const [lastAppliedAiPrefill, setLastAppliedAiPrefill] =
+    useState<AiPrefillSnapshot>(buildAiPrefillSnapshot(null));
+  const regenerateFormSnapshotRef = useRef<ConsultationFormValues | null>(null);
+  const skipNextConsultationResetRef = useRef(false);
 
   const consultationQuery = useQuery({
     queryKey: consultationId
@@ -80,7 +220,7 @@ export function PhysicianConsultationActivePage() {
     enabled: Boolean(consultationQuery.data?.patientId),
   });
 
-  const { register, handleSubmit, reset, control, setValue } =
+  const { register, handleSubmit, reset, control, setValue, getValues } =
     useForm<ConsultationFormValues>({
       resolver: zodResolver(consultationSchema),
       defaultValues: {
@@ -100,15 +240,102 @@ export function PhysicianConsultationActivePage() {
       return;
     }
 
-    const draft = consultation.draftNote ?? createEmptyConsultationDraft();
+    const nextAiPrefill = buildAiPrefillSnapshot(
+      consultation.draftAssessmentPackage,
+    );
+
+    if (skipNextConsultationResetRef.current) {
+      skipNextConsultationResetRef.current = false;
+      setLastAppliedAiPrefill(nextAiPrefill);
+      return;
+    }
+
+    const draft = buildInitialConsultationDraft(
+      consultation.draftNote,
+      consultation.draftAssessmentPackage?.subjective,
+      consultation.draftAssessmentPackage?.assessment,
+      consultation.draftAssessmentPackage?.plan,
+    );
     reset({
       clinicianName: consultation.clinicianName ?? localClinicianName,
       ...draft,
-      nextAction: consultation.nextAction ?? "follow-up-booking",
+      nextAction:
+        consultation.nextAction ??
+        consultation.draftAssessmentPackage?.nextActionSuggestion ??
+        "follow-up-booking",
       finalAssessmentReviewed:
         consultation.clinicianReview.isFinalized ?? false,
     });
+    setLastAppliedAiPrefill(nextAiPrefill);
+    setRegenerateError(null);
   }, [consultation, localClinicianName, reset]);
+
+  const regenerateMutation = useMutation({
+    mutationFn: () =>
+      regenerateConsultationDraftAssessment(consultationId as string),
+    onMutate: () => {
+      regenerateFormSnapshotRef.current = getValues();
+      setRegenerateError(null);
+      setAiProgressStep(0);
+    },
+    onSuccess: (updated) => {
+      const currentValues = regenerateFormSnapshotRef.current ?? getValues();
+      const nextAiPrefill = buildAiPrefillSnapshot(
+        updated.draftAssessmentPackage,
+      );
+      const mergedDraft = mergeConsultationDraftWithLatestAi(
+        updated.draftNote ?? createEmptyConsultationDraft(),
+        currentValues,
+        lastAppliedAiPrefill,
+        nextAiPrefill,
+      );
+
+      queryClient.setQueryData(queryKeys.consultation(updated.id), updated);
+      skipNextConsultationResetRef.current = true;
+      setLastAppliedAiPrefill(nextAiPrefill);
+      reset({
+        ...currentValues,
+        clinicianName:
+          currentValues.clinicianName ||
+          updated.clinicianName ||
+          localClinicianName,
+        ...mergedDraft,
+        nextAction: resolveNextActionAfterRegeneration(
+          currentValues.nextAction as ConsultationNextAction,
+          lastAppliedAiPrefill.nextAction,
+          nextAiPrefill.nextAction,
+          updated.nextAction,
+        ),
+        finalAssessmentReviewed:
+          currentValues.finalAssessmentReviewed ||
+          updated.clinicianReview.isFinalized,
+      });
+    },
+    onError: (error) => {
+      setRegenerateError(
+        getApiErrorMessage(error, "Unable to refresh the AI draft right now."),
+      );
+    },
+    onSettled: () => {
+      regenerateFormSnapshotRef.current = null;
+      setAiProgressStep(0);
+    },
+  });
+
+  useEffect(() => {
+    if (!regenerateMutation.isPending) {
+      return;
+    }
+
+    const timeouts = [
+      setTimeout(() => setAiProgressStep(1), 700),
+      setTimeout(() => setAiProgressStep(2), 1500),
+    ];
+
+    return () => {
+      timeouts.forEach((timeout) => clearTimeout(timeout));
+    };
+  }, [regenerateMutation.isPending]);
 
   const saveMutation = useMutation({
     mutationFn: (values: ConsultationFormValues) =>
@@ -171,6 +398,13 @@ export function PhysicianConsultationActivePage() {
   const carePlan = useWatch({ control, name: "carePlan" });
   const canComplete =
     assessment.trim().length >= 12 && carePlan.trim().length >= 12;
+  const isAiGenerationActive = regenerateMutation.isPending;
+  const redFlagPrompt = draftPackage?.followUpQuestions.length
+    ? draftPackage.followUpQuestions[0]
+    : "Confirm whether any danger signs, severe worsening, or escalation triggers are present before finalizing the route.";
+  const examPrompt = patientSnapshot?.symptoms?.length
+    ? `Use the presenting complaint and symptoms (${patientSnapshot.symptoms.join(", ")}) to guide a focused exam, then record only observed findings.`
+    : "Use the presenting complaint and record context to guide a focused exam, then record only observed findings.";
 
   if (!consultation || consultation.status !== "in_progress") {
     return (
@@ -355,6 +589,149 @@ export function PhysicianConsultationActivePage() {
               </p>
             </div>
           </Card>
+
+          <Card className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Full AI draft package
+                </p>
+                <h3 className="mt-2 text-2xl text-ink">
+                  Review the generated scaffold while documenting
+                </h3>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill tone={isAiGenerationActive ? "info" : "review"}>
+                  {isAiGenerationActive ? "Generating" : "Draft only"}
+                </StatusPill>
+                {draftPackage ? (
+                  <StatusPill tone="neutral">
+                    {draftPackage.source === "agent"
+                      ? "Agent generated"
+                      : "Fallback draft"}
+                  </StatusPill>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.5rem] border border-line bg-white px-4 py-4 text-sm text-muted">
+              <div className="space-y-1">
+                <p className="font-semibold text-ink">AI draft status</p>
+                <p>
+                  Generated {formatDateTime(draftPackage?.generatedAt)}. Review
+                  before relying on any suggested assessment, plan, or next
+                  action.
+                </p>
+              </div>
+
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={
+                  isAiGenerationActive ||
+                  saveMutation.isPending ||
+                  completeMutation.isPending
+                }
+                onClick={() => regenerateMutation.mutate()}
+              >
+                <RefreshCw
+                  className={
+                    isAiGenerationActive ? "h-4 w-4 animate-spin" : "h-4 w-4"
+                  }
+                />
+                {draftPackage ? "Regenerate AI draft" : "Generate AI draft"}
+              </Button>
+            </div>
+
+            {isAiGenerationActive ? (
+              <div className="space-y-4 rounded-[1.5rem] border border-info/15 bg-info-soft/70 px-4 py-4">
+                <div>
+                  <p className="text-sm font-semibold text-ink">
+                    AI-assisted note is refreshing
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-ink/80">
+                    The physician draft stays editable while the latest context
+                    is reviewed. Existing clinician-authored note text will be
+                    preserved.
+                  </p>
+                </div>
+
+                <StepProgress
+                  steps={aiGenerationSteps}
+                  currentStep={aiProgressStep}
+                />
+              </div>
+            ) : null}
+
+            {regenerateError ? (
+              <InfoBanner title="Unable to refresh AI draft" tone="review">
+                {regenerateError}
+              </InfoBanner>
+            ) : null}
+
+            <div className="space-y-4 rounded-[1.5rem] border border-line bg-white px-4 py-4 text-sm leading-6 text-muted">
+              <div>
+                <p className="font-semibold text-ink">Chief concern</p>
+                <p>
+                  {draftPackage?.complaintSummary ||
+                    patientSnapshot?.presentingComplaint ||
+                    "No complaint captured."}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Subjective draft</p>
+                <p>
+                  {draftPackage?.subjective ||
+                    "No subjective draft is attached yet."}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Draft assessment</p>
+                <p>
+                  {draftPackage?.assessment ||
+                    "No draft assessment package has been generated yet."}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Draft plan</p>
+                <p>{draftPackage?.plan || "No draft plan is attached yet."}</p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Suggested next action</p>
+                <p>
+                  {consultationNextActions.find(
+                    (option) =>
+                      option.value === draftPackage?.nextActionSuggestion,
+                  )?.label || "No suggested next step from the draft package."}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">AI prompts to verify</p>
+                <p>
+                  {draftPackage?.followUpQuestions.length
+                    ? draftPackage.followUpQuestions.join(" ")
+                    : "No follow-up prompts were generated."}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Retrieved context</p>
+                <p>
+                  {consultation.retrievedContext.length
+                    ? consultation.retrievedContext
+                        .slice(0, 3)
+                        .map((item) => `${item.title}: ${item.snippet}`)
+                        .join(" ")
+                    : "No reviewed record context is attached yet."}
+                </p>
+              </div>
+            </div>
+          </Card>
         </div>
 
         <form className="space-y-6" onSubmit={handleSubmit(() => undefined)}>
@@ -406,6 +783,20 @@ export function PhysicianConsultationActivePage() {
                     {...register(section.key)}
                     placeholder={section.placeholder}
                   />
+
+                  {section.key === "redFlags" ? (
+                    <div className="rounded-[1.25rem] border border-line bg-white px-4 py-3 text-sm leading-6 text-muted">
+                      <p className="font-semibold text-ink">AI prompt only</p>
+                      <p>{redFlagPrompt}</p>
+                    </div>
+                  ) : null}
+
+                  {section.key === "examFindings" ? (
+                    <div className="rounded-[1.25rem] border border-line bg-white px-4 py-3 text-sm leading-6 text-muted">
+                      <p className="font-semibold text-ink">AI prompt only</p>
+                      <p>{examPrompt}</p>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -430,7 +821,7 @@ export function PhysicianConsultationActivePage() {
                 type="button"
                 variant="secondary"
                 onClick={handleSubmit((values) => saveMutation.mutate(values))}
-                disabled={saveMutation.isPending}
+                disabled={saveMutation.isPending || isAiGenerationActive}
               >
                 Save note draft
               </Button>
@@ -509,7 +900,8 @@ export function PhysicianConsultationActivePage() {
                 disabled={
                   !canComplete ||
                   !finalAssessmentReviewed ||
-                  completeMutation.isPending
+                  completeMutation.isPending ||
+                  isAiGenerationActive
                 }
                 onClick={handleSubmit((values) => {
                   if (!canComplete) {

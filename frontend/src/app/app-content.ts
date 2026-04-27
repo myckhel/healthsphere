@@ -1,4 +1,8 @@
-export const patientFlowSteps = ["Identity", "Intake", "Queue"] as const;
+export const patientFlowSteps = [
+  "Your details",
+  "Symptoms",
+  "Visit status",
+] as const;
 
 export const patientLanguages = ["English", "Hausa", "Yoruba", "Igbo"] as const;
 
@@ -38,7 +42,7 @@ export const homeWorkflowCards = [
   },
   {
     title: "Outreach scope",
-    body: "Follow-up automation is not active in this MVP, so this area stays operationally scoped and explicit.",
+    body: "Follow-up automation is not active yet, so this area stays clearly informational.",
     route: "/outreach/dashboard",
     badge: "Follow-up",
     tone: "review" as const,
@@ -47,8 +51,8 @@ export const homeWorkflowCards = [
 
 export const homeHighlights = [
   {
-    title: "Backend-backed workflow state",
-    body: "Patients, triage cases, consultations, and records now come from the API instead of a local-only walkthrough store.",
+    title: "Live clinic data",
+    body: "Patients, triage cases, consultations, and records come from the clinic system instead of a local walkthrough.",
   },
   {
     title: "Clear human review gates",

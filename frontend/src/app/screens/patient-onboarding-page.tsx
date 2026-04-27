@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Languages, ShieldCheck } from "lucide-react";
+import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -9,7 +10,13 @@ import {
   patientLanguages,
   visitTypes,
 } from "@/app/app-content";
-import { createPatient, describeApiError } from "@/shared/api/healthsphere";
+import {
+  createPatient,
+  describeApiError,
+  formatPatientName,
+  lookupPatientByExternalId,
+  type PatientListItem,
+} from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
@@ -38,6 +45,8 @@ const onboardingSchema = z.object({
 
 type OnboardingFormValues = z.infer<typeof onboardingSchema>;
 
+type IntakeMode = "self-service" | "staff-assisted";
+
 export function PatientOnboardingPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -54,6 +63,7 @@ export function PatientOnboardingPage() {
     handleSubmit,
     register,
     setValue,
+    getValues,
     control,
     formState: { errors },
   } = useForm<OnboardingFormValues>({
@@ -75,6 +85,49 @@ export function PatientOnboardingPage() {
   const preferredLanguage = useWatch({ control, name: "preferredLanguage" });
   const visitType = useWatch({ control, name: "visitType" });
   const consentGranted = useWatch({ control, name: "consentGranted" });
+  const externalId = useWatch({ control, name: "externalId" }) ?? "";
+  const [intakeMode, setIntakeMode] = useState<IntakeMode>("self-service");
+  const [showNewPatientFlow, setShowNewPatientFlow] = useState(false);
+  const [matchedPatient, setMatchedPatient] = useState<PatientListItem | null>(
+    null,
+  );
+  const [resolvedExternalId, setResolvedExternalId] = useState(
+    patientDraft.externalId.trim(),
+  );
+
+  const lookupPatientMutation = useMutation({
+    mutationFn: (requestedExternalId: string) =>
+      lookupPatientByExternalId(
+        requestedExternalId,
+        intakeMode === "self-service"
+          ? {
+              actor: {
+                actorId: requestedExternalId.trim(),
+                actorRole: "patient",
+                clinicId: null,
+              },
+            }
+          : undefined,
+      ),
+    onSuccess: (patient, requestedExternalId) => {
+      const normalizedExternalId = requestedExternalId.trim();
+      setResolvedExternalId(normalizedExternalId);
+      setMatchedPatient(patient);
+      setShowNewPatientFlow(patient === null);
+      if (patient === null) {
+        setSelectedPatientId(null);
+      }
+    },
+  });
+
+  function handleIntakeModeChange(mode: IntakeMode) {
+    setIntakeMode(mode);
+    setMatchedPatient(null);
+    setResolvedExternalId("");
+    setShowNewPatientFlow(false);
+    setSelectedPatientId(null);
+    lookupPatientMutation.reset();
+  }
 
   const createPatientMutation = useMutation({
     mutationFn: createPatient,
@@ -85,6 +138,48 @@ export function PatientOnboardingPage() {
       navigate("/patient/intake");
     },
   });
+
+  function handleExistingPatientLookup() {
+    const normalizedExternalId = externalId.trim();
+    if (!normalizedExternalId) {
+      setMatchedPatient(null);
+      setResolvedExternalId("");
+      setShowNewPatientFlow(true);
+      return;
+    }
+
+    lookupPatientMutation.mutate(normalizedExternalId);
+  }
+
+  function handleContinueWithExistingPatient() {
+    if (!matchedPatient) {
+      return;
+    }
+
+    const values = getValues();
+    updatePatientDraft({
+      firstName: matchedPatient.firstName,
+      lastName: matchedPatient.lastName,
+      externalId: matchedPatient.externalId ?? values.externalId?.trim() ?? "",
+      phoneNumber: matchedPatient.phoneNumber ?? "",
+      preferredLanguage: values.preferredLanguage,
+      visitType: values.visitType,
+      dateOfBirth: matchedPatient.dateOfBirth ?? "",
+      sexAtBirth: matchedPatient.sexAtBirth ?? "",
+      consentGranted: values.consentGranted,
+      notes: values.notes ?? "",
+    });
+    setSelectedPatientId(matchedPatient.id);
+    setSelectedTriageCaseId(null);
+    navigate("/patient/intake");
+  }
+
+  function handleContinueAsNewPatient() {
+    setMatchedPatient(null);
+    setResolvedExternalId("");
+    setShowNewPatientFlow(true);
+    setSelectedPatientId(null);
+  }
 
   function onSubmit(values: OnboardingFormValues) {
     updatePatientDraft(values);
@@ -106,6 +201,24 @@ export function PatientOnboardingPage() {
         "Check the patient details and try again.",
       )
     : null;
+  const patientLookupError = lookupPatientMutation.isError
+    ? describeApiError(
+        lookupPatientMutation.error,
+        "Unable to verify that patient ID right now.",
+      )
+    : null;
+  const normalizedExternalId = externalId.trim();
+  const showingResolvedLookup = normalizedExternalId === resolvedExternalId;
+  const activeMatchedPatient = showingResolvedLookup ? matchedPatient : null;
+  const showMatchedPatientCard = Boolean(
+    activeMatchedPatient && !showNewPatientFlow,
+  );
+  const showMissingPatientNotice = Boolean(
+    lookupPatientMutation.isSuccess &&
+    !activeMatchedPatient &&
+    Boolean(resolvedExternalId) &&
+    showingResolvedLookup,
+  );
 
   return (
     <div className="space-y-6">
@@ -132,6 +245,160 @@ export function PatientOnboardingPage() {
           </div>
 
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
+            <div className="space-y-3 rounded-[1.5rem] border border-line bg-brand-soft/35 px-4 py-4">
+              <div>
+                <p className="text-sm font-semibold text-ink">
+                  Check for an existing patient record first
+                </p>
+                <p className="mt-1 text-sm leading-6 text-muted">
+                  Enter the clinic patient ID before creating a new chart. Pick
+                  self-service when the patient is identifying their own record,
+                  or staff-assisted when front desk staff are looking up the
+                  chart inside clinic scope.
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => handleIntakeModeChange("self-service")}
+                  className={
+                    intakeMode === "self-service"
+                      ? "rounded-[1.25rem] border border-brand bg-white px-4 py-3 text-left text-sm font-semibold text-brand-strong"
+                      : "rounded-[1.25rem] border border-line bg-white/80 px-4 py-3 text-left text-sm font-medium text-ink"
+                  }
+                >
+                  Patient self-service
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleIntakeModeChange("staff-assisted")}
+                  className={
+                    intakeMode === "staff-assisted"
+                      ? "rounded-[1.25rem] border border-brand bg-white px-4 py-3 text-left text-sm font-semibold text-brand-strong"
+                      : "rounded-[1.25rem] border border-line bg-white/80 px-4 py-3 text-left text-sm font-medium text-ink"
+                  }
+                >
+                  Staff-assisted lookup
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <label
+                  className="block text-sm font-medium text-ink"
+                  htmlFor="external-id"
+                >
+                  Existing patient ID
+                </label>
+                <Input id="external-id" {...register("externalId")} />
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={lookupPatientMutation.isPending}
+                    onClick={handleExistingPatientLookup}
+                  >
+                    {intakeMode === "self-service"
+                      ? "Find my record"
+                      : "Confirm patient ID"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleContinueAsNewPatient}
+                  >
+                    Register new patient instead
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {patientLookupError ? (
+              <InfoBanner title="Unable to verify patient ID" tone="review">
+                <div className="space-y-2">
+                  <p>{patientLookupError.message}</p>
+                  {patientLookupError.details.map((detail) => (
+                    <p key={detail} className="text-sm leading-6 text-muted">
+                      {detail}
+                    </p>
+                  ))}
+                </div>
+              </InfoBanner>
+            ) : null}
+
+            {showMatchedPatientCard && activeMatchedPatient ? (
+              <Card className="space-y-4 border border-success/25 bg-success-soft/35 p-5">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-success">
+                    Existing record found
+                  </p>
+                  <h3 className="text-2xl text-ink">
+                    Confirm this is the patient before intake.
+                  </h3>
+                </div>
+
+                <dl className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                      Name
+                    </dt>
+                    <dd className="mt-1 text-sm font-medium text-ink">
+                      {formatPatientName(activeMatchedPatient)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                      Existing patient ID
+                    </dt>
+                    <dd className="mt-1 text-sm font-medium text-ink">
+                      {activeMatchedPatient.externalId ?? "Not recorded"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                      Date of birth
+                    </dt>
+                    <dd className="mt-1 text-sm font-medium text-ink">
+                      {activeMatchedPatient.dateOfBirth ?? "Not recorded"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                      Phone number
+                    </dt>
+                    <dd className="mt-1 text-sm font-medium text-ink">
+                      {activeMatchedPatient.phoneNumber ?? "Not recorded"}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    type="button"
+                    disabled={!consentGranted}
+                    onClick={handleContinueWithExistingPatient}
+                  >
+                    This matches, continue to symptoms
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleContinueAsNewPatient}
+                  >
+                    This is not the patient
+                  </Button>
+                </div>
+              </Card>
+            ) : null}
+
+            {showMissingPatientNotice ? (
+              <InfoBanner title="No existing record matched that ID">
+                {intakeMode === "self-service"
+                  ? "No record was found for that patient ID. Continue below if you need to register as a new patient."
+                  : "Use the new-patient section below if this person needs a fresh chart in the current clinic scope."}
+              </InfoBanner>
+            ) : null}
+
             {patientCreateError ? (
               <InfoBanner title="Unable to create patient" tone="review">
                 <div className="space-y-2">
@@ -145,98 +412,99 @@ export function PatientOnboardingPage() {
               </InfoBanner>
             ) : null}
 
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div className="space-y-3">
-                <label
-                  className="block text-sm font-medium text-ink"
-                  htmlFor="first-name"
-                >
-                  First name
-                </label>
-                <Input id="first-name" {...register("firstName")} />
-                {errors.firstName ? (
+            {showNewPatientFlow ? (
+              <div className="space-y-6 rounded-[1.5rem] border border-line bg-white/75 px-4 py-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand">
+                    New patient details
+                  </p>
+                  <h3 className="mt-2 text-2xl text-ink">
+                    No chart matched. Capture the essentials for a new record.
+                  </h3>
+                </div>
+
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <div className="space-y-3">
+                    <label
+                      className="block text-sm font-medium text-ink"
+                      htmlFor="first-name"
+                    >
+                      First name
+                    </label>
+                    <Input id="first-name" {...register("firstName")} />
+                    {errors.firstName ? (
+                      <p className="text-sm text-warning">
+                        {errors.firstName.message}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-3">
+                    <label
+                      className="block text-sm font-medium text-ink"
+                      htmlFor="last-name"
+                    >
+                      Last name
+                    </label>
+                    <Input id="last-name" {...register("lastName")} />
+                    {errors.lastName ? (
+                      <p className="text-sm text-warning">
+                        {errors.lastName.message}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <label
+                    className="block text-sm font-medium text-ink"
+                    htmlFor="phone-number"
+                  >
+                    Phone number
+                  </label>
+                  <Input id="phone-number" {...register("phoneNumber")} />
+                  {errors.phoneNumber ? (
+                    <p className="text-sm text-warning">
+                      {errors.phoneNumber.message}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <div className="space-y-3">
+                    <label
+                      className="block text-sm font-medium text-ink"
+                      htmlFor="date-of-birth"
+                    >
+                      Date of birth
+                    </label>
+                    <Input
+                      id="date-of-birth"
+                      type="date"
+                      {...register("dateOfBirth")}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <label
+                      className="block text-sm font-medium text-ink"
+                      htmlFor="sex-at-birth"
+                    >
+                      Sex at birth
+                    </label>
+                    <Input id="sex-at-birth" {...register("sexAtBirth")} />
+                  </div>
+                </div>
+
+                {patientCreateError?.kind ===
+                "duplicate_patient_external_id" ? (
                   <p className="text-sm text-warning">
-                    {errors.firstName.message}
+                    That patient ID already belongs to someone in this clinic.
+                    Confirm the existing chart above or enter a different ID.
                   </p>
                 ) : null}
               </div>
-
-              <div className="space-y-3">
-                <label
-                  className="block text-sm font-medium text-ink"
-                  htmlFor="last-name"
-                >
-                  Last name
-                </label>
-                <Input id="last-name" {...register("lastName")} />
-                {errors.lastName ? (
-                  <p className="text-sm text-warning">
-                    {errors.lastName.message}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <label
-                className="block text-sm font-medium text-ink"
-                htmlFor="phone-number"
-              >
-                Phone number
-              </label>
-              <Input id="phone-number" {...register("phoneNumber")} />
-              {errors.phoneNumber ? (
-                <p className="text-sm text-warning">
-                  {errors.phoneNumber.message}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div className="space-y-3">
-                <label
-                  className="block text-sm font-medium text-ink"
-                  htmlFor="date-of-birth"
-                >
-                  Date of birth
-                </label>
-                <Input
-                  id="date-of-birth"
-                  type="date"
-                  {...register("dateOfBirth")}
-                />
-              </div>
-
-              <div className="space-y-3">
-                <label
-                  className="block text-sm font-medium text-ink"
-                  htmlFor="sex-at-birth"
-                >
-                  Sex at birth
-                </label>
-                <Input id="sex-at-birth" {...register("sexAtBirth")} />
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <label
-                className="block text-sm font-medium text-ink"
-                htmlFor="external-id"
-              >
-                Existing patient ID if available
-              </label>
-              <Input id="external-id" {...register("externalId")} />
-              <p className="text-sm leading-6 text-muted">
-                If the patient already has a clinic record, enter the existing
-                ID so staff can catch duplicates before the consultation begins.
-              </p>
-              {patientCreateError?.kind === "duplicate_patient_external_id" ? (
-                <p className="text-sm text-warning">
-                  That patient ID already belongs to someone in this clinic.
-                  Search for the existing record or enter a different ID.
-                </p>
-              ) : null}
-            </div>
+            ) : null}
 
             <div className="space-y-3">
               <p className="text-sm font-medium text-ink">Preferred language</p>
@@ -305,13 +573,15 @@ export function PatientOnboardingPage() {
               </p>
             ) : null}
 
-            <Button
-              className="w-full sm:w-auto"
-              disabled={!consentGranted || createPatientMutation.isPending}
-              type="submit"
-            >
-              Continue to symptoms
-            </Button>
+            {showNewPatientFlow ? (
+              <Button
+                className="w-full sm:w-auto"
+                disabled={!consentGranted || createPatientMutation.isPending}
+                type="submit"
+              >
+                Create patient and continue to symptoms
+              </Button>
+            ) : null}
           </form>
         </Card>
 
@@ -320,8 +590,8 @@ export function PatientOnboardingPage() {
             title="Why this screen is short"
             icon={<ShieldCheck className="h-4 w-4 text-brand" />}
           >
-            HealthSphere asks only for the information needed to create a
-            patient record and move that patient safely into intake.
+            HealthSphere checks for an existing chart before creating a new
+            patient record, then moves the confirmed visit safely into intake.
           </InfoBanner>
 
           <Card className="space-y-4">

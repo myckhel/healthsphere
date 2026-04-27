@@ -1,8 +1,8 @@
-# HealthSphere Frontend
+# HealthSphere Web App
 
-This frontend is the clinic workflow surface for HealthSphere AI. It is a Vite + React 19 + TypeScript application that now uses the existing backend API for patients, triage, consultations, and records.
+This web app is the clinic workflow surface for HealthSphere AI. It is a Vite + React 19 + TypeScript application that uses the existing backend API for patients, triage, consultations, and records.
 
-## What the MVP covers
+## What the app covers now
 
 - patient onboarding backed by `POST /patients`
 - symptom intake backed by `POST /triage/cases`
@@ -10,10 +10,10 @@ This frontend is the clinic workflow surface for HealthSphere AI. It is a Vite +
 - consultation creation, resume, editing, and completion backed by `GET/POST/PATCH /consultations`
 - manual record capture and review backed by `GET/POST/PATCH /records`
 
-Out of scope for this MVP:
+Out of scope right now:
 
 - appointments
-- binary uploads and OCR capture in the frontend workflow
+- binary uploads and OCR capture in the web app workflow
 - live voice capture
 - automated outreach actions
 
@@ -27,7 +27,7 @@ cp .env.example .env
 bun run dev
 ```
 
-The frontend expects the backend at `http://localhost:8000/api/v1` by default.
+The web app expects the backend at `http://localhost:8000/api/v1` by default.
 
 ## Environment variables
 

@@ -38,34 +38,34 @@ export function AppShell() {
     ? {
         label: "Manual record review",
         detail:
-          "Front-desk staff can register patients and approve captured records from the API-backed queue.",
+          "Front-desk staff can register patients and approve captured records waiting for review.",
         tone: "review" as const,
       }
     : isPhysicianRoute
       ? {
           label: "Consultation workflow",
           detail:
-            "Queue status, records, and clinician notes stay in sync with the backend contract.",
+            "Queue status, records, and clinician notes stay aligned across the consultation workflow.",
           tone: "success" as const,
         }
       : isOutreachRoute
         ? {
             label: "Scoped for later",
             detail:
-              "Follow-up automation is not enabled in this MVP, so this surface stays informational.",
+              "Follow-up automation is not enabled yet, so this area stays informational.",
             tone: "review" as const,
           }
         : location.pathname === "/patient/next-steps"
           ? {
               label: "Queue confirmed",
               detail:
-                "The patient's live queue status is pulled from the backend and refreshed through React Query.",
+                "The patient's current queue status stays up to date throughout the visit.",
               tone: "review" as const,
             }
           : {
-              label: "Clinic MVP",
+              label: "Clinic operations",
               detail:
-                "The app is focused on real intake, queue, consultation, and record-review workflows.",
+                "The experience is focused on intake, queue, consultation, and record-review workflows.",
               tone: "info" as const,
             };
 
@@ -81,36 +81,36 @@ export function AppShell() {
 
   const systemStatus = healthQuery.isError
     ? {
-        label: "API unavailable",
+        label: "Service unavailable",
         detail:
-          "The frontend is running, but the backend API is not reachable. Reads and writes may fail until the service comes back.",
+          "The clinic system is temporarily unavailable. Reading or updating records may fail until service is restored.",
         tone: "review" as const,
       }
     : readinessQuery.isError
       ? {
-          label: "Backend degraded",
+          label: "Limited availability",
           detail:
-            "The API is reachable, but the readiness probe failed. Expect partial functionality until backend dependencies recover.",
+            "Some clinic services are not fully available yet. Expect partial functionality until everything is restored.",
           tone: "review" as const,
         }
       : readinessQuery.data?.status === "ready"
         ? {
-            label: "Backend ready",
+            label: "System ready",
             detail:
-              "Health and readiness probes are passing. Contract-backed workflows can read and write against the current clinic scope.",
+              "Clinic services are available and records can be reviewed and updated normally.",
             tone: "success" as const,
           }
         : healthQuery.data?.status === "ok"
           ? {
-              label: "Checking readiness",
+              label: "Preparing services",
               detail:
-                "The API is alive and the app is waiting for the readiness probe before marking the backend fully available.",
+                "The clinic system is responding and finishing its startup checks before full access is confirmed.",
               tone: "info" as const,
             }
           : {
-              label: "Checking API",
+              label: "Checking services",
               detail:
-                "The app is verifying backend health in the background. Navigation remains available while probes load.",
+                "The clinic system is verifying availability in the background. Navigation remains available while checks complete.",
               tone: "info" as const,
             };
 
@@ -124,7 +124,7 @@ export function AppShell() {
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand">
                   HealthSphere
                 </p>
-                <StatusPill tone="neutral">Functional frontend MVP</StatusPill>
+                <StatusPill tone="neutral">Clinic workspace</StatusPill>
               </div>
 
               <div>
@@ -240,8 +240,8 @@ export function AppShell() {
 
         <footer className="pb-4 text-sm text-muted">
           HealthSphere keeps records, triage suggestions, and consultation notes
-          visible for human review. Unsupported capabilities stay clearly out of
-          scope instead of being implied in the UI.
+          visible for human review. Any unavailable capability stays clearly
+          labeled instead of being implied in the experience.
         </footer>
       </div>
     </div>

@@ -62,7 +62,7 @@ export function PatientTriagePage() {
                 Intake entrypoint
               </p>
               <h3 className="mt-1 text-2xl text-ink">
-                Real keyboard-first intake for the current MVP
+                Keyboard-first intake for the current app
               </h3>
             </div>
           </div>
@@ -76,7 +76,7 @@ export function PatientTriagePage() {
             </div>
             <div className="rounded-[1.5rem] bg-white px-4 py-4">
               Preferred language is carried into onboarding and consultation
-              context, but the actual symptom capture path for this MVP is typed
+              context, but the active symptom capture path in this app is typed
               intake.
             </div>
           </div>

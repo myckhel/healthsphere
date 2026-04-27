@@ -23,6 +23,37 @@ class ConsultationSupportService:
     def __init__(self, retrieval_service: RetrievalService | None = None) -> None:
         self.retrieval_service = retrieval_service or RetrievalService()
 
+    async def build_consultation_draft_workspace(
+        self,
+        db: AsyncSession,
+        *,
+        consultation: ConsultationSession,
+        patient: Patient,
+        triage_case: TriageCase | None,
+        existing_draft_note: dict[str, object] | None,
+    ) -> tuple[
+        ConsultationPatientSnapshot,
+        list[ConsultationRetrievedContext],
+        ConsultationDraftAssessmentPackage,
+    ]:
+        patient_snapshot = await self.build_patient_snapshot(
+            patient=patient,
+            triage_case=triage_case,
+        )
+        retrieved_context = await self.build_retrieved_context(
+            db,
+            clinic_id=consultation.clinic_id,
+            patient_id=patient.id,
+            query_text=patient_snapshot.presenting_complaint,
+        )
+        draft_package = await self.build_draft_assessment_package(
+            consultation=consultation,
+            patient_snapshot=patient_snapshot,
+            retrieved_context=retrieved_context,
+            existing_draft_note=existing_draft_note,
+        )
+        return patient_snapshot, retrieved_context, draft_package
+
     async def build_patient_snapshot(
         self,
         *,
@@ -100,7 +131,8 @@ class ConsultationSupportService:
                     follow_up_questions=list(result.get("follow_up_questions") or []),
                     next_action_suggestion=result.get("next_action_suggestion"),
                 )
-            except Exception:
+            except Exception as e:
+                print(f"Error running consultation scribe agent: {e}")
                 pass
 
         return self._build_fallback_package(

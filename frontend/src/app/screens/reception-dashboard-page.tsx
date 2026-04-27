@@ -196,7 +196,7 @@ export function ReceptionDashboardPage() {
       </div>
 
       <InfoBanner
-        title="Manual record capture is the supported MVP path"
+        title="Manual record capture is the supported path today"
         tone="review"
         icon={<WifiOff className="h-4 w-4 text-warning" />}
       >

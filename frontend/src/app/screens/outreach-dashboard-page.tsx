@@ -35,7 +35,7 @@ export function OutreachDashboardPage() {
       </div>
 
       <InfoBanner
-        title="Outreach automation is not part of the current functional MVP"
+        title="Outreach automation is not part of the current app yet"
         tone="review"
         icon={<TriangleAlert className="h-4 w-4 text-warning" />}
       >

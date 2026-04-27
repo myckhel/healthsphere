@@ -55,7 +55,7 @@ class AgentRuntime:
                 model=settings.openai_model,
                 model_provider=MultiProvider(
                     openai_api_key=settings.openai_api_key,
-                    openai_api_base_url=settings.openai_api_base_url,
+                    openai_base_url=settings.openai_api_base_url,
                 ),
                 tracing_disabled=True,
                 workflow_name=f"HealthSphere {agent_name}",

@@ -30,3 +30,7 @@ class PatientCreateRequest(BaseModel):
     phone_number: str | None = Field(default=None, max_length=32)
     consent_status: str = Field(default="pending", max_length=32)
     notes: str | None = Field(default=None, max_length=2000)
+
+
+class PatientExternalIdLookupResponse(BaseModel):
+    patient: PatientSummary | None = None

@@ -171,49 +171,105 @@ async def _sync_triage_case_status(
         triage_case.status = "closed"
 
 
-async def _build_consultation_detail(
+async def _build_consultation_draft_workspace(
     *,
     db: AsyncSession,
     consultation: ConsultationSession,
     consultation_support_service: ConsultationSupportService,
-) -> ConsultationSessionDetail:
+) -> tuple[
+    Patient | None,
+    TriageCase | None,
+    Any,
+    list[Any],
+    ConsultationDraftAssessmentPackage | None,
+]:
     patient = consultation.__dict__.get("patient")
     if patient is None:
         patient = await db.scalar(select(Patient).where(Patient.id == consultation.patient_id))
+
     triage_case = consultation.__dict__.get("triage_case")
     if triage_case is None and consultation.triage_case_id is not None:
         triage_case = await db.scalar(
             select(TriageCase).where(TriageCase.id == consultation.triage_case_id)
         )
 
-    patient_snapshot = None
-    retrieved_context = []
-    draft_package = _extract_draft_package(consultation.draft_note)
-    if patient is not None:
-        patient_snapshot = await consultation_support_service.build_patient_snapshot(
+    if patient is None:
+        return None, triage_case, None, [], _extract_draft_package(consultation.draft_note)
+
+    patient_snapshot, retrieved_context, draft_package = (
+        await consultation_support_service.build_consultation_draft_workspace(
+            db,
+            consultation=consultation,
             patient=patient,
             triage_case=triage_case,
+            existing_draft_note=consultation.draft_note,
         )
-        retrieved_context = await consultation_support_service.build_retrieved_context(
-            db,
-            clinic_id=consultation.clinic_id,
-            patient_id=patient.id,
-            query_text=patient_snapshot.presenting_complaint,
+    )
+    return patient, triage_case, patient_snapshot, retrieved_context, draft_package
+
+
+async def _refresh_consultation_draft_package(
+    *,
+    db: AsyncSession,
+    consultation: ConsultationSession,
+    consultation_support_service: ConsultationSupportService,
+) -> tuple[Any | None, list[Any], ConsultationDraftAssessmentPackage | None]:
+    _, _, patient_snapshot, retrieved_context, draft_package = (
+        await _build_consultation_draft_workspace(
+            db=db,
+            consultation=consultation,
+            consultation_support_service=consultation_support_service,
         )
-        if draft_package is None:
-            draft_package = await consultation_support_service.build_draft_assessment_package(
-                consultation=consultation,
-                patient_snapshot=patient_snapshot,
-                retrieved_context=retrieved_context,
-                existing_draft_note=consultation.draft_note,
-            )
+    )
+
+    if draft_package is not None:
+        consultation.draft_note = _merge_draft_note(
+            consultation.draft_note,
+            {
+                "draft_assessment_package": draft_package.model_dump(mode="json"),
+            },
+        )
+
+    return patient_snapshot, retrieved_context, draft_package
+
+
+async def _build_consultation_detail(
+    *,
+    db: AsyncSession,
+    consultation: ConsultationSession,
+    consultation_support_service: ConsultationSupportService,
+    patient_snapshot=None,
+    retrieved_context: list[Any] | None = None,
+    draft_package: ConsultationDraftAssessmentPackage | None = None,
+) -> ConsultationSessionDetail:
+    (
+        _patient,
+        _triage_case,
+        built_patient_snapshot,
+        built_retrieved_context,
+        built_draft_package,
+    ) = await _build_consultation_draft_workspace(
+        db=db,
+        consultation=consultation,
+        consultation_support_service=consultation_support_service,
+    )
+
+    resolved_patient_snapshot = (
+        patient_snapshot if patient_snapshot is not None else built_patient_snapshot
+    )
+    resolved_retrieved_context = (
+        retrieved_context if retrieved_context is not None else built_retrieved_context
+    )
+    resolved_draft_package = (
+        draft_package if draft_package is not None else built_draft_package
+    )
 
     detail = ConsultationSessionDetail.model_validate(consultation)
     return detail.model_copy(
         update={
-            "patient_snapshot": patient_snapshot,
-            "retrieved_context": retrieved_context,
-            "draft_assessment_package": draft_package,
+            "patient_snapshot": resolved_patient_snapshot,
+            "retrieved_context": resolved_retrieved_context,
+            "draft_assessment_package": resolved_draft_package,
             "clinician_review": _extract_clinician_review(consultation.draft_note),
         }
     )
@@ -306,30 +362,15 @@ async def create_consultation(
             detail="Assessment and care plan are required before completing a consultation.",
         )
 
-    patient_snapshot = await consultation_support_service.build_patient_snapshot(
-        patient=patient,
-        triage_case=triage_case,
-    )
-    retrieved_context = await consultation_support_service.build_retrieved_context(
-        db,
-        clinic_id=consultation.clinic_id,
-        patient_id=patient.id,
-        query_text=patient_snapshot.presenting_complaint,
-    )
-    draft_package = await consultation_support_service.build_draft_assessment_package(
-        consultation=consultation,
-        patient_snapshot=patient_snapshot,
-        retrieved_context=retrieved_context,
-        existing_draft_note=consultation.draft_note,
-    )
-    consultation.draft_note = _merge_draft_note(
-        consultation.draft_note,
-        {
-            "draft_assessment_package": draft_package.model_dump(mode="json"),
-        },
-    )
     consultation.patient = patient
     consultation.triage_case = triage_case
+    patient_snapshot, retrieved_context, draft_package = (
+        await _refresh_consultation_draft_package(
+            db=db,
+            consultation=consultation,
+            consultation_support_service=consultation_support_service,
+        )
+    )
     db.add(consultation)
     await db.flush()
     await _sync_triage_case_status(db, consultation=consultation)
@@ -351,6 +392,9 @@ async def create_consultation(
         db=db,
         consultation=consultation,
         consultation_support_service=consultation_support_service,
+        patient_snapshot=patient_snapshot,
+        retrieved_context=retrieved_context,
+        draft_package=draft_package,
     )
 
 
@@ -464,4 +508,58 @@ async def update_consultation(
         db=db,
         consultation=consultation,
         consultation_support_service=consultation_support_service,
+    )
+
+
+@router.post(
+    "/{consultation_id}/draft-assessment/regenerate",
+    response_model=ConsultationSessionDetail,
+)
+async def regenerate_consultation_draft_assessment(
+    consultation_id: uuid.UUID,
+    actor: RequestActor = Depends(get_request_actor),
+    _rate_limit: None = Depends(rate_limit_expensive_endpoint("consultations_regenerate")),
+    consultation_support_service: ConsultationSupportService = Depends(
+        get_consultation_support_service
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> ConsultationSessionDetail:
+    query = _apply_scope(
+        select(ConsultationSession).where(ConsultationSession.id == consultation_id),
+        actor=actor,
+    )
+    consultation = await db.scalar(query)
+    if consultation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Consultation session not found for the current clinic scope.",
+        )
+
+    patient_snapshot, retrieved_context, draft_package = (
+        await _refresh_consultation_draft_package(
+            db=db,
+            consultation=consultation,
+            consultation_support_service=consultation_support_service,
+        )
+    )
+    await _write_audit_event(
+        db,
+        actor=actor,
+        clinic_id=consultation.clinic_id,
+        consultation_id=consultation.id,
+        action="draft_regenerated",
+        details={
+            "retrieved_context_count": len(retrieved_context),
+            "draft_assessment_source": draft_package.source if draft_package else None,
+        },
+    )
+    await db.commit()
+    await db.refresh(consultation)
+    return await _build_consultation_detail(
+        db=db,
+        consultation=consultation,
+        consultation_support_service=consultation_support_service,
+        patient_snapshot=patient_snapshot,
+        retrieved_context=retrieved_context,
+        draft_package=draft_package,
     )

@@ -233,6 +233,10 @@ type BackendPatient = {
   consent_status: string;
 };
 
+type BackendPatientLookupResponse = {
+  patient: BackendPatient | null;
+};
+
 type BackendTriageCase = {
   id: string;
   clinic_id: string | null;
@@ -356,6 +360,16 @@ export const appConfig = {
     "staff") as ActorRole,
   clinicId:
     (import.meta.env.VITE_CLINIC_ID as string | undefined) ?? DEFAULT_CLINIC_ID,
+};
+
+type ActorOverride = {
+  actorId?: string;
+  actorRole?: ActorRole;
+  clinicId?: string | null;
+};
+
+type RequestOptions = {
+  actor?: ActorOverride;
 };
 
 // Keep frontend behavior aligned with the current backend contract.
@@ -544,13 +558,22 @@ function buildUrl(path: string, params?: Record<string, string | undefined>) {
   return url.toString();
 }
 
-function buildHeaders(headers?: HeadersInit) {
+function buildHeaders(headers?: HeadersInit, options?: RequestOptions) {
   const requestHeaders = new Headers(headers);
+  const actorId = options?.actor?.actorId ?? appConfig.actorId;
+  const actorRole = options?.actor?.actorRole ?? appConfig.actorRole;
+  const clinicId =
+    options?.actor && "clinicId" in options.actor
+      ? options.actor.clinicId
+      : appConfig.clinicId;
+
   requestHeaders.set("Content-Type", "application/json");
-  requestHeaders.set("X-HealthSphere-Actor-Id", appConfig.actorId);
-  requestHeaders.set("X-HealthSphere-Actor-Role", appConfig.actorRole);
-  if (appConfig.clinicId) {
-    requestHeaders.set("X-HealthSphere-Clinic-Id", appConfig.clinicId);
+  requestHeaders.set("X-HealthSphere-Actor-Id", actorId);
+  requestHeaders.set("X-HealthSphere-Actor-Role", actorRole);
+  if (clinicId) {
+    requestHeaders.set("X-HealthSphere-Clinic-Id", clinicId);
+  } else {
+    requestHeaders.delete("X-HealthSphere-Clinic-Id");
   }
   return requestHeaders;
 }
@@ -559,10 +582,11 @@ async function requestJson<T>(
   path: string,
   init?: RequestInit,
   params?: Record<string, string | undefined>,
+  options?: RequestOptions,
 ): Promise<T> {
   const response = await fetch(buildUrl(path, params), {
     ...init,
-    headers: buildHeaders(init?.headers),
+    headers: buildHeaders(init?.headers, options),
   });
 
   if (!response.ok) {
@@ -824,6 +848,21 @@ export async function listPatients(search?: string) {
   return data.map(normalizePatient);
 }
 
+export async function lookupPatientByExternalId(
+  externalId: string,
+  options?: RequestOptions,
+) {
+  const data = await requestJson<BackendPatientLookupResponse>(
+    "patients/lookup",
+    undefined,
+    {
+      external_id: externalId.trim(),
+    },
+    options,
+  );
+  return data.patient ? normalizePatient(data.patient) : null;
+}
+
 export async function createPatient(input: CreatePatientInput) {
   const payload = withClinicId(input);
   const data = await requestJson<BackendPatient>("patients", {
@@ -926,6 +965,18 @@ export async function updateConsultation(
         draft_note: input.draftNote,
         final_assessment_reviewed: input.finalAssessmentReviewed,
       }),
+    },
+  );
+  return normalizeConsultation(data);
+}
+
+export async function regenerateConsultationDraftAssessment(
+  consultationId: string,
+) {
+  const data = await requestJson<BackendConsultation>(
+    `consultations/${consultationId}/draft-assessment/regenerate`,
+    {
+      method: "POST",
     },
   );
   return normalizeConsultation(data);
