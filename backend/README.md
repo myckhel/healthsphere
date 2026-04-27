@@ -83,6 +83,16 @@ Until Clerk verification is wired, protected routes accept these headers in loca
 - `X-HealthSphere-Actor-Role`
 - `X-HealthSphere-Clinic-Id`
 
+The clinic header is now required for non-admin protected routes so read and write queries stay clinic-scoped in local development.
+
+## Guardrails
+
+- expensive endpoints such as record retrieval, record upload, and consultation workspace routes are rate limited in-process
+- retrieval ranking is bounded by configured candidate and result limits
+- agent payloads are truncated to a shared character budget before model execution
+- request logging is PHI-safe and records only hashed actor identity plus operational metadata
+- high-risk triage complaints are escalated deterministically and cannot be discharged through the consultation workflow without escalation
+
 ## API contract doc
 
 For a frontend-facing contract summary of the current backend routes, request and response shapes, and implemented versus scaffolded endpoints, see:

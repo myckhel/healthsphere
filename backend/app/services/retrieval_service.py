@@ -5,6 +5,7 @@ import math
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
+from app.core.config import settings
 from app.models.record import Record
 from app.models.record_chunk import RecordChunk
 from app.services.embedding_service import EmbeddingService
@@ -47,10 +48,16 @@ class RetrievalService:
         chunks: Sequence[RecordChunk],
         limit: int = 5,
     ) -> list[dict[str, object]]:
+        candidate_limit = max(1, settings.retrieval_candidate_chunk_limit)
+        bounded_chunks = sorted(
+            chunks,
+            key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )[:candidate_limit]
         query_embedding = self.embedding_service.embed_text(query)
         now = datetime.now(timezone.utc)
         ranked: list[dict[str, object]] = []
-        for chunk in chunks:
+        for chunk in bounded_chunks:
             chunk_embedding = chunk.embedding or self.embedding_service.embed_text(chunk.content)
             cosine_similarity = self._cosine_similarity(query_embedding, chunk_embedding)
             lexical_similarity = self._token_overlap_similarity(query, chunk.content)
@@ -76,7 +83,7 @@ class RetrievalService:
                 }
             )
         ranked.sort(key=lambda item: item["combined_score"], reverse=True)
-        return ranked[: max(1, min(limit, 10))]
+        return ranked[: max(1, min(limit, settings.retrieval_result_limit))]
 
     @staticmethod
     def _build_snippet(content: str, max_length: int = 220) -> str:

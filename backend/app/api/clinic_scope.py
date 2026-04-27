@@ -26,6 +26,11 @@ def resolve_clinic_scope(
     actor: RequestActor,
     requested_clinic_id: uuid.UUID | None,
 ) -> uuid.UUID | None:
+    if actor.auth_provider != "disabled" and actor.role != "admin" and not actor.clinic_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Clinic scope is required for this route.",
+        )
     actor_clinic_id = parse_actor_clinic_id(actor)
     if actor_clinic_id and requested_clinic_id and actor_clinic_id != requested_clinic_id:
         raise HTTPException(
@@ -33,6 +38,10 @@ def resolve_clinic_scope(
             detail="Actor cannot write outside the assigned clinic scope.",
         )
     return requested_clinic_id or actor_clinic_id
+
+
+def require_actor_clinic_scope(actor: RequestActor) -> uuid.UUID | None:
+    return resolve_clinic_scope(actor=actor, requested_clinic_id=None)
 
 
 async def resolve_existing_clinic_scope(

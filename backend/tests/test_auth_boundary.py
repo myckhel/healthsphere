@@ -35,6 +35,19 @@ async def test_invalid_stub_role_returns_bad_request(client) -> None:
     assert response.json()["code"] == "bad_request"
 
 
+async def test_protected_read_routes_require_clinic_scope_header(client) -> None:
+    response = await client.get(
+        "/api/v1/patients",
+        headers={
+            "X-HealthSphere-Actor-Id": "staff-123",
+            "X-HealthSphere-Actor-Role": "staff",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["message"] == "Clinic scope is required for this route."
+
+
 async def test_clerk_mode_does_not_fall_back_to_stub_auth(client) -> None:
     from app.core.config import settings
 

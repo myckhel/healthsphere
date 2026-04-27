@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.clinic_scope import parse_actor_clinic_id, resolve_existing_clinic_scope
+from app.api.clinic_scope import require_actor_clinic_scope, resolve_existing_clinic_scope
 from app.api.deps import get_request_actor
 from app.core.database import get_db
+from app.domain import apply_triage_guardrails
 from app.domain.review_policy import resolve_review_transition
 from app.models.audit_event import AuditEvent
 from app.models.patient import Patient
@@ -25,7 +26,7 @@ async def list_triage_cases(
     db: AsyncSession = Depends(get_db),
 ) -> list[TriageCaseSummary]:
     query = select(TriageCase).order_by(TriageCase.created_at.desc())
-    clinic_id = parse_actor_clinic_id(actor)
+    clinic_id = require_actor_clinic_scope(actor)
     if clinic_id:
         query = query.where(TriageCase.clinic_id == clinic_id)
     triage_cases = (await db.scalars(query)).all()
@@ -43,7 +44,7 @@ async def list_queue(
         .where(TriageCase.status == "open")
         .order_by(TriageCase.created_at.asc())
     )
-    clinic_id = parse_actor_clinic_id(actor)
+    clinic_id = require_actor_clinic_scope(actor)
     if clinic_id:
         query = query.where(TriageCase.clinic_id == clinic_id)
 
@@ -93,6 +94,16 @@ async def create_triage_case(
                 detail="Patient not found for the current clinic scope.",
             )
 
+    guardrails = apply_triage_guardrails(
+        urgency_level=payload.urgency_level,
+        review_status=payload.review_status,
+        presenting_complaint=payload.presenting_complaint,
+        symptoms=payload.symptoms,
+        recommended_queue=payload.recommended_queue,
+        recommended_action=payload.recommended_action,
+        model_output=payload.model_output,
+    )
+
     reviewed_by, reviewed_at = resolve_review_transition(
         review_status=payload.review_status,
         reviewer_id=actor.subject,
@@ -106,9 +117,9 @@ async def create_triage_case(
         urgency_level=payload.urgency_level,
         presenting_complaint=payload.presenting_complaint,
         symptoms=payload.symptoms,
-        recommended_queue=payload.recommended_queue,
-        recommended_action=payload.recommended_action,
-        model_output=payload.model_output,
+        recommended_queue=guardrails["recommended_queue"],
+        recommended_action=guardrails["recommended_action"],
+        model_output=guardrails["model_output"],
         review_status=payload.review_status,
         reviewed_by=reviewed_by,
         reviewed_at=reviewed_at,
@@ -128,6 +139,8 @@ async def create_triage_case(
                 "recommended_queue": triage_case.recommended_queue,
                 "review_status": triage_case.review_status,
                 "reviewed_by": triage_case.reviewed_by,
+                "escalate_immediately": guardrails["escalate_immediately"],
+                "red_flag_reasons": guardrails["red_flag_reasons"],
             },
         )
     )

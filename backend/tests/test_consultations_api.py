@@ -224,3 +224,54 @@ async def test_complete_consultation_stamps_review_and_closes_triage_case(client
     audit_event = db_session._added[0]
     assert audit_event.details["after_status"] == "completed"
     assert audit_event.details["final_assessment_reviewed"] is True
+
+
+async def test_high_risk_triage_case_cannot_be_completed_as_discharge(client, db_session) -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    triage_case = TriageCase(
+        id=TEST_TRIAGE_ID,
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        source="intake",
+        status="in_consultation",
+        urgency_level="urgent",
+        presenting_complaint="Chest pain and shortness of breath",
+        symptoms=["chest pain", "shortness of breath"],
+        recommended_queue="physician-now",
+        review_status="pending",
+        created_at=now,
+        updated_at=now,
+    )
+    consultation = ConsultationSession(
+        id=uuid.uuid4(),
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        triage_case_id=TEST_TRIAGE_ID,
+        status="in_progress",
+        clinician_id="clinician-123",
+        draft_note={
+            "assessment": "High-risk complaint requires escalation.",
+            "carePlan": "Escalate immediately.",
+            "clinician_review": {
+                "is_finalized": True,
+                "reviewed_by": "clinician-123",
+                "reviewed_at": now.isoformat(),
+            },
+        },
+        started_at=now,
+    )
+    consultation.triage_case = triage_case
+
+    db_session.scalar.side_effect = [consultation, triage_case]
+
+    response = await client.patch(
+        f"/api/v1/consultations/{consultation.id}",
+        headers=actor_headers(),
+        json={
+            "status": "completed",
+            "next_action": "discharge",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "High-risk triage cases cannot be discharged without explicit escalation."

@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core.database import engine, get_db
 from app.main import app
+from app.services.rate_limit_service import default_rate_limit_service
 
 
 class ScalarResult:
@@ -30,6 +31,13 @@ class ExecuteResult:
 async def _dispose_async_engine_after_test() -> None:
     yield
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clear_rate_limits() -> None:
+    default_rate_limit_service.clear()
+    yield
+    default_rate_limit_service.clear()
 
 
 @pytest_asyncio.fixture(autouse=True)

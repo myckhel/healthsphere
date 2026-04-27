@@ -41,7 +41,7 @@ class AgentRuntime:
             model_settings=ModelSettings(
                 temperature=0,
                 parallel_tool_calls=False,
-                max_tokens=900,
+                max_tokens=settings.agent_max_output_tokens,
                 truncation="auto",
                 store=False,
             ),
@@ -60,7 +60,30 @@ class AgentRuntime:
 
     @staticmethod
     def _serialize_payload(payload: dict[str, Any]) -> str:
-        return json.dumps(payload, default=str, sort_keys=True)
+        budgeted_payload = AgentRuntime._apply_budget(payload)
+        serialized = json.dumps(budgeted_payload, default=str, sort_keys=True)
+        if len(serialized) > settings.agent_payload_char_budget:
+            raise RuntimeError(
+                "Agent payload exceeded the configured budget after truncation."
+            )
+        return serialized
+
+    @staticmethod
+    def _apply_budget(value: Any) -> Any:
+        if isinstance(value, str):
+            max_chars = 1200
+            if len(value) <= max_chars:
+                return value
+            return value[: max_chars - 3].rstrip() + "..."
+        if isinstance(value, list):
+            return [AgentRuntime._apply_budget(item) for item in value[:8]]
+        if isinstance(value, dict):
+            return {
+                key: AgentRuntime._apply_budget(item)
+                for index, (key, item) in enumerate(value.items())
+                if index < 24
+            }
+        return value
 
 
 default_agent_runtime = AgentRuntime()

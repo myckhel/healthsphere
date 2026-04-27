@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from app.agents.consultation_scribe import run_consultation_scribe_agent
 from app.agents.intake import run_intake_agent
+from app.agents.runtime import AgentRuntime
 from app.agents.persistence import (
     apply_consultation_agent_draft,
     apply_record_digitization_draft,
@@ -175,3 +176,17 @@ def test_agent_persistence_helpers_keep_outputs_draft_only() -> None:
     assert record.reviewed_at is None
     assert record.structured_data == {"pulse": 72}
     assert record.provenance["agent_digitization_draft"]["review_status"] == "needs_review"
+
+
+def test_agent_runtime_serialization_enforces_payload_budget() -> None:
+    serialized = AgentRuntime._serialize_payload(
+        {
+            "patient": {
+                "notes": "x" * 5000,
+                "history": ["y" * 3000 for _ in range(20)],
+            }
+        }
+    )
+
+    assert len(serialized) < 12000
+    assert "..." in serialized

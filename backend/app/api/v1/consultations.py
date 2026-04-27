@@ -9,8 +9,10 @@ from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_request_actor
-from app.api.clinic_scope import parse_actor_clinic_id, resolve_existing_clinic_scope
+from app.api.clinic_scope import require_actor_clinic_scope, resolve_existing_clinic_scope
+from app.api.guardrails import rate_limit_expensive_endpoint
 from app.core.database import get_db
+from app.domain import detect_red_flag_reasons, discharge_allowed_for_triage
 from app.models.audit_event import AuditEvent
 from app.models.consultation_session import ConsultationSession
 from app.models.patient import Patient
@@ -108,7 +110,7 @@ def _apply_scope(
     *,
     actor: RequestActor,
 ) -> Select[tuple[ConsultationSession]]:
-    actor_clinic_id = parse_actor_clinic_id(actor)
+    actor_clinic_id = require_actor_clinic_scope(actor)
     if actor_clinic_id:
         query = query.where(ConsultationSession.clinic_id == actor_clinic_id)
     return query
@@ -194,6 +196,7 @@ async def _build_consultation_detail(
         )
         retrieved_context = await consultation_support_service.build_retrieved_context(
             db,
+            clinic_id=consultation.clinic_id,
             patient_id=patient.id,
             query_text=patient_snapshot.presenting_complaint,
         )
@@ -223,6 +226,7 @@ async def list_consultations(
     actor: RequestActor = Depends(get_request_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConsultationSessionSummary]:
+    require_actor_clinic_scope(actor)
     query = _apply_scope(select(ConsultationSession).order_by(ConsultationSession.created_at.desc()), actor=actor)
     if patient_id:
         query = query.where(ConsultationSession.patient_id == patient_id)
@@ -236,6 +240,7 @@ async def list_consultations(
 async def get_consultation(
     consultation_id: uuid.UUID,
     actor: RequestActor = Depends(get_request_actor),
+    _rate_limit: None = Depends(rate_limit_expensive_endpoint("consultations_get")),
     consultation_support_service: ConsultationSupportService = Depends(
         get_consultation_support_service
     ),
@@ -262,6 +267,7 @@ async def get_consultation(
 async def create_consultation(
     payload: ConsultationSessionCreateRequest,
     actor: RequestActor = Depends(get_request_actor),
+    _rate_limit: None = Depends(rate_limit_expensive_endpoint("consultations_create")),
     consultation_support_service: ConsultationSupportService = Depends(
         get_consultation_support_service
     ),
@@ -306,6 +312,7 @@ async def create_consultation(
     )
     retrieved_context = await consultation_support_service.build_retrieved_context(
         db,
+        clinic_id=consultation.clinic_id,
         patient_id=patient.id,
         query_text=patient_snapshot.presenting_complaint,
     )
@@ -352,6 +359,7 @@ async def update_consultation(
     consultation_id: uuid.UUID,
     payload: ConsultationSessionUpdateRequest,
     actor: RequestActor = Depends(get_request_actor),
+    _rate_limit: None = Depends(rate_limit_expensive_endpoint("consultations_update")),
     consultation_support_service: ConsultationSupportService = Depends(
         get_consultation_support_service
     ),
@@ -372,6 +380,11 @@ async def update_consultation(
     merged_draft_note = _merge_draft_note(consultation.draft_note, payload.draft_note)
     existing_review = _extract_clinician_review(consultation.draft_note)
     review_finalized = existing_review.is_finalized
+    triage_case = consultation.__dict__.get("triage_case")
+    if triage_case is None and consultation.triage_case_id is not None:
+        triage_case = await db.scalar(
+            select(TriageCase).where(TriageCase.id == consultation.triage_case_id)
+        )
 
     if payload.clinician_name is not None:
         consultation.clinician_name = payload.clinician_name
@@ -407,6 +420,20 @@ async def update_consultation(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="A next action is required before completing a consultation.",
                 )
+            final_next_action = payload.next_action or consultation.next_action
+            if final_next_action == "discharge" and triage_case is not None:
+                red_flag_reasons = detect_red_flag_reasons(
+                    presenting_complaint=triage_case.presenting_complaint,
+                    symptoms=triage_case.symptoms,
+                )
+                if not discharge_allowed_for_triage(
+                    urgency_level=triage_case.urgency_level,
+                    red_flag_reasons=red_flag_reasons,
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="High-risk triage cases cannot be discharged without explicit escalation.",
+                    )
         consultation.status = payload.status
         if payload.status == "in_progress" and consultation.started_at is None:
             consultation.started_at = datetime.now(timezone.utc)

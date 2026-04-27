@@ -95,11 +95,11 @@ Checklist:
 
 Checklist:
 
-- [ ] Clinic-scoped queries enforced
-- [ ] Token budget controls added
-- [ ] Rate limits added to expensive endpoints
-- [ ] Audit trail complete
-- [ ] High-risk escalation enforced outside prompts
+- [x] Clinic-scoped queries enforced
+- [x] Token budget controls added
+- [x] Rate limits added to expensive endpoints
+- [x] Audit trail complete
+- [x] High-risk escalation enforced outside prompts
 
 ## Iteration 7: Follow-Up Tasks
 

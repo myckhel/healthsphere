@@ -47,6 +47,7 @@ class ConsultationSupportService:
         self,
         db: AsyncSession,
         *,
+        clinic_id,
         patient_id,
         query_text: str | None,
         limit: int = 3,
@@ -55,9 +56,10 @@ class ConsultationSupportService:
         if not normalized_query:
             return []
 
-        chunks = (
-            await db.scalars(select(RecordChunk).where(RecordChunk.patient_id == patient_id))
-        ).all()
+        query = select(RecordChunk).where(RecordChunk.patient_id == patient_id)
+        if clinic_id is not None:
+            query = query.where(RecordChunk.clinic_id == clinic_id)
+        chunks = (await db.scalars(query)).all()
         ranked = self.retrieval_service.rank_chunks(
             query=normalized_query,
             chunks=chunks,

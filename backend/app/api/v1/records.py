@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.clinic_scope import parse_actor_clinic_id, resolve_existing_clinic_scope
+from app.api.clinic_scope import require_actor_clinic_scope, resolve_existing_clinic_scope
 from app.api.deps import get_request_actor
+from app.api.guardrails import rate_limit_expensive_endpoint
 from app.core.database import get_db
 from app.domain.review_policy import resolve_record_review_transition
 from app.models.audit_event import AuditEvent
@@ -82,7 +83,7 @@ async def _write_audit_event(
     *,
     actor: RequestActor,
     clinic_id: uuid.UUID | None,
-    record_id: uuid.UUID,
+    record_id: uuid.UUID | None,
     action: str,
     details: dict[str, object] | None = None,
 ) -> None:
@@ -90,7 +91,7 @@ async def _write_audit_event(
         AuditEvent(
             clinic_id=clinic_id,
             entity_type="record",
-            entity_id=str(record_id),
+            entity_id=str(record_id) if record_id is not None else None,
             action=action,
             actor_id=actor.subject,
             actor_role=actor.role,
@@ -104,7 +105,7 @@ def _apply_scope(
     *,
     actor: RequestActor,
 ) -> Select[tuple[Record]]:
-    actor_clinic_id = parse_actor_clinic_id(actor)
+    actor_clinic_id = require_actor_clinic_scope(actor)
     if actor_clinic_id:
         query = query.where(Record.clinic_id == actor_clinic_id)
     return query
@@ -115,7 +116,7 @@ def _apply_chunk_scope(
     *,
     actor: RequestActor,
 ) -> Select[tuple[RecordChunk]]:
-    actor_clinic_id = parse_actor_clinic_id(actor)
+    actor_clinic_id = require_actor_clinic_scope(actor)
     if actor_clinic_id:
         query = query.where(RecordChunk.clinic_id == actor_clinic_id)
     return query
@@ -128,6 +129,7 @@ async def list_records(
     actor: RequestActor = Depends(get_request_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[RecordSummary]:
+    require_actor_clinic_scope(actor)
     query = _apply_scope(select(Record).order_by(Record.created_at.desc()), actor=actor)
     if patient_id:
         query = query.where(Record.patient_id == patient_id)
@@ -143,16 +145,31 @@ async def retrieve_records(
     q: str = Query(min_length=1),
     limit: int = Query(default=5, ge=1, le=10),
     actor: RequestActor = Depends(get_request_actor),
+    _rate_limit: None = Depends(rate_limit_expensive_endpoint("records_retrieve")),
     retrieval_service: RetrievalService = Depends(get_retrieval_service),
     db: AsyncSession = Depends(get_db),
 ) -> list[RecordRetrievalMatch]:
-    await _load_patient(db, patient_id=patient_id, clinic_id=parse_actor_clinic_id(actor))
+    clinic_id = require_actor_clinic_scope(actor)
+    await _load_patient(db, patient_id=patient_id, clinic_id=clinic_id)
     query = _apply_chunk_scope(
         select(RecordChunk).where(RecordChunk.patient_id == patient_id),
         actor=actor,
     )
     chunks = (await db.scalars(query)).all()
     ranked = retrieval_service.rank_chunks(query=q, chunks=chunks, limit=limit)
+    await _write_audit_event(
+        db,
+        actor=actor,
+        clinic_id=clinic_id,
+        record_id=ranked[0]["record_id"] if ranked else None,
+        action="retrieved",
+        details={
+            "patient_id": str(patient_id),
+            "query_length": len(q.strip()),
+            "result_count": len(ranked),
+        },
+    )
+    await db.commit()
     return [RecordRetrievalMatch.model_validate(item) for item in ranked]
 
 
@@ -162,6 +179,7 @@ async def get_record(
     actor: RequestActor = Depends(get_request_actor),
     db: AsyncSession = Depends(get_db),
 ) -> RecordDetail:
+    require_actor_clinic_scope(actor)
     record = await _load_record(db, record_id=record_id, actor=actor)
     return RecordDetail.model_validate(record)
 
@@ -256,6 +274,7 @@ async def upload_record(
     record_type: str = Form(default="uploaded_document"),
     file: UploadFile = File(...),
     actor: RequestActor = Depends(get_request_actor),
+    _rate_limit: None = Depends(rate_limit_expensive_endpoint("records_upload")),
     ocr_service: OCRService = Depends(get_ocr_service),
     retrieval_service: RetrievalService = Depends(get_retrieval_service),
     db: AsyncSession = Depends(get_db),

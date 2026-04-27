@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.clinic_scope import parse_actor_clinic_id, resolve_existing_clinic_scope
+from app.api.clinic_scope import require_actor_clinic_scope, resolve_existing_clinic_scope
 from app.api.deps import get_request_actor
 from app.core.database import get_db
 from app.models.audit_event import AuditEvent
@@ -21,8 +21,8 @@ async def list_patients(
     actor: RequestActor = Depends(get_request_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[PatientSummary]:
+    clinic_id = require_actor_clinic_scope(actor)
     query = select(Patient).order_by(Patient.created_at.desc())
-    clinic_id = parse_actor_clinic_id(actor)
     if clinic_id:
         query = query.where(Patient.clinic_id == clinic_id)
     if q:

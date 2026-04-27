@@ -235,3 +235,38 @@ async def test_retrieve_records_ranks_patient_chunks_by_similarity_and_recency(c
     body = response.json()
     assert body[0]["record_id"] == str(newer_record.id)
     assert body[0]["combined_score"] >= body[1]["combined_score"]
+
+    added_types = [type(item).__name__ for item in db_session._added]
+    assert added_types == ["AuditEvent"]
+
+
+async def test_retrieve_records_rate_limits_expensive_endpoint(client, db_session) -> None:
+    from app.core.config import settings
+
+    patient = Patient(
+        id=TEST_PATIENT_ID,
+        clinic_id=TEST_CLINIC_ID,
+        first_name="Ada",
+        last_name="Okafor",
+        consent_status="granted",
+    )
+    db_session.scalar.return_value = patient
+    db_session.scalars.return_value = type("ScalarResult", (), {"all": lambda self: []})()
+
+    original_limit = settings.expensive_endpoint_rate_limit
+    settings.expensive_endpoint_rate_limit = 1
+    try:
+        first_response = await client.get(
+            f"/api/v1/records/retrieve?patient_id={TEST_PATIENT_ID}&q=headache",
+            headers=actor_headers(),
+        )
+        second_response = await client.get(
+            f"/api/v1/records/retrieve?patient_id={TEST_PATIENT_ID}&q=headache",
+            headers=actor_headers(),
+        )
+    finally:
+        settings.expensive_endpoint_rate_limit = original_limit
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 429
+    assert second_response.json()["message"] == "Rate limit exceeded for this expensive endpoint."

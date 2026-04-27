@@ -42,6 +42,14 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"
+    agent_payload_char_budget: int = 12000
+    agent_max_output_tokens: int = 900
+
+    retrieval_result_limit: int = 5
+    retrieval_candidate_chunk_limit: int = 50
+
+    expensive_endpoint_rate_limit: int = 20
+    expensive_endpoint_rate_window_seconds: int = 60
 
     calendly_api_token: str | None = None
 
