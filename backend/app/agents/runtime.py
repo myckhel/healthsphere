@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, TypeVar
 
 from agents import Agent, ModelSettings, RunConfig, Runner
+from agents.models.multi_provider import MultiProvider
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -52,6 +53,10 @@ class AgentRuntime:
             max_turns=max_turns,
             run_config=RunConfig(
                 model=settings.openai_model,
+                model_provider=MultiProvider(
+                    openai_api_key=settings.openai_api_key,
+                    openai_api_base_url=settings.openai_api_base_url,
+                ),
                 tracing_disabled=True,
                 workflow_name=f"HealthSphere {agent_name}",
             ),

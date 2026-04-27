@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     clerk_jwks_url: str | None = None
 
     openai_api_key: str | None = None
+    openai_api_base_url: str | None = None
     openai_model: str = "gpt-4.1-mini"
     agent_payload_char_budget: int = 12000
     agent_max_output_tokens: int = 900

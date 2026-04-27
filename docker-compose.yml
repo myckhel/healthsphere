@@ -38,6 +38,7 @@ services:
       STUB_ROLE_HEADER: X-HealthSphere-Actor-Role
       STUB_CLINIC_HEADER: X-HealthSphere-Clinic-Id
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
       CALENDLY_API_TOKEN: ${CALENDLY_API_TOKEN:-}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
