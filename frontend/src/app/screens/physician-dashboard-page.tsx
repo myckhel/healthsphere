@@ -6,13 +6,16 @@ import {
   UsersRound,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { physicianChecklist } from "@/app/app-content";
 import {
+  describeApiError,
   listConsultations,
   listRecords,
   listTriageQueue,
   queryKeys,
+  type ConsultationStatus,
 } from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
@@ -20,13 +23,29 @@ import { InfoBanner } from "@/shared/ui/info-banner";
 import { StatusPill } from "@/shared/ui/status-pill";
 
 export function PhysicianDashboardPage() {
+  const [consultationStatusFilter, setConsultationStatusFilter] = useState<
+    "all" | ConsultationStatus
+  >("all");
   const queueQuery = useQuery({
     queryKey: queryKeys.triageQueue,
     queryFn: listTriageQueue,
   });
-  const consultationsQuery = useQuery({
+  const allConsultationsQuery = useQuery({
     queryKey: queryKeys.consultations(),
     queryFn: () => listConsultations(),
+  });
+  const consultationsQuery = useQuery({
+    queryKey: queryKeys.consultations(
+      undefined,
+      consultationStatusFilter === "all" ? undefined : consultationStatusFilter,
+    ),
+    queryFn: () =>
+      listConsultations(
+        undefined,
+        consultationStatusFilter === "all"
+          ? undefined
+          : consultationStatusFilter,
+      ),
   });
   const recordsQuery = useQuery({
     queryKey: queryKeys.records(),
@@ -34,12 +53,39 @@ export function PhysicianDashboardPage() {
   });
 
   const inProgress =
-    consultationsQuery.data?.filter(
+    allConsultationsQuery.data?.filter(
       (consultation) => consultation.status === "in_progress",
     ).length ?? 0;
   const pendingRecords =
     recordsQuery.data?.filter((record) => record.reviewStatus !== "approved")
       .length ?? 0;
+  const consultationCounts = {
+    all: allConsultationsQuery.data?.length ?? 0,
+    ready:
+      allConsultationsQuery.data?.filter(
+        (consultation) => consultation.status === "ready",
+      ).length ?? 0,
+    in_progress: inProgress,
+    completed:
+      allConsultationsQuery.data?.filter(
+        (consultation) => consultation.status === "completed",
+      ).length ?? 0,
+  };
+  const consultationPanelError = consultationsQuery.isError
+    ? describeApiError(
+        consultationsQuery.error,
+        "Unable to load consultations for this clinic.",
+      )
+    : null;
+  const consultationFilterOptions: Array<{
+    value: "all" | ConsultationStatus;
+    label: string;
+  }> = [
+    { value: "all", label: "All sessions" },
+    { value: "ready", label: "Ready" },
+    { value: "in_progress", label: "In progress" },
+    { value: "completed", label: "Completed" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -131,11 +177,152 @@ export function PhysicianDashboardPage() {
         <Card className="space-y-5">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-muted">
-              Visit guidance
+              Consultation review list
             </p>
             <h3 className="mt-2 text-2xl text-ink">
-              What should remain visible before sign-off
+              Review consultation state without leaving the dashboard
             </h3>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {consultationFilterOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setConsultationStatusFilter(option.value)}
+                className={
+                  consultationStatusFilter === option.value
+                    ? "rounded-full border border-brand bg-brand-soft px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-brand-strong"
+                    : "rounded-full border border-line bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted"
+                }
+              >
+                {option.label} ({consultationCounts[option.value]})
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-[1.25rem] bg-white/80 px-4 py-4 text-sm leading-6 text-muted">
+            The live queue still creates or resumes the active visit. This
+            dashboard panel is for review, filtering, and jumping back into the
+            right session without changing queue ordering.
+          </div>
+
+          <div className="space-y-3">
+            {consultationsQuery.isPending ? (
+              <div className="rounded-[1.25rem] border border-line bg-white px-4 py-4 text-sm text-muted">
+                Loading consultation sessions for the current clinic scope.
+              </div>
+            ) : null}
+
+            {consultationPanelError ? (
+              <InfoBanner
+                title="Unable to load consultation sessions"
+                tone="review"
+              >
+                <div className="space-y-2">
+                  <p>{consultationPanelError.message}</p>
+                  {consultationPanelError.details.map((detail) => (
+                    <p key={detail} className="text-sm leading-6 text-muted">
+                      {detail}
+                    </p>
+                  ))}
+                </div>
+              </InfoBanner>
+            ) : null}
+
+            {!consultationsQuery.isPending && !consultationPanelError
+              ? (consultationsQuery.data ?? [])
+                  .slice(0, 4)
+                  .map((consultation) => {
+                    const consultationHref =
+                      consultation.status === "in_progress"
+                        ? `/physician/consultation/${consultation.id}/active`
+                        : consultation.status === "completed"
+                          ? `/physician/consultation/${consultation.id}/outcome`
+                          : `/physician/consultation/${consultation.id}`;
+
+                    return (
+                      <div
+                        key={consultation.id}
+                        className="rounded-[1.25rem] border border-line bg-white px-4 py-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-ink">
+                              {consultation.patientSnapshot?.fullName ||
+                                consultation.patientId}
+                            </p>
+                            <p className="mt-1 text-sm text-muted">
+                              {consultation.clinicianName ||
+                                "Clinician not named yet"}
+                            </p>
+                          </div>
+                          <StatusPill
+                            tone={
+                              consultation.status === "completed"
+                                ? "review"
+                                : consultation.status === "in_progress"
+                                  ? "info"
+                                  : "success"
+                            }
+                          >
+                            {consultation.status.replace("_", " ")}
+                          </StatusPill>
+                        </div>
+
+                        <p className="mt-3 text-sm leading-6 text-muted">
+                          {consultation.draftAssessmentPackage
+                            ?.complaintSummary ||
+                            consultation.patientSnapshot?.presentingComplaint ||
+                            "No complaint summary is attached yet."}
+                        </p>
+
+                        <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.18em] text-muted">
+                          <span>
+                            Next action: {consultation.nextAction || "Not set"}
+                          </span>
+                          <span>
+                            Urgency:{" "}
+                            {consultation.patientSnapshot?.urgencyLevel ||
+                              "Not triaged"}
+                          </span>
+                          <span>
+                            Review:{" "}
+                            {consultation.clinicianReview.isFinalized
+                              ? "Final reviewed"
+                              : "Draft only"}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <Button variant="secondary" asChild>
+                            <Link to={consultationHref}>
+                              {consultation.status === "in_progress"
+                                ? "Resume session"
+                                : consultation.status === "completed"
+                                  ? "Review outcome"
+                                  : "Open session"}
+                            </Link>
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+              : null}
+
+            {!consultationsQuery.isPending &&
+            !consultationPanelError &&
+            !consultationsQuery.data?.length ? (
+              <div className="rounded-[1.25rem] border border-line bg-white px-4 py-4 text-sm text-muted">
+                No consultations match the current filter.
+              </div>
+            ) : null}
+          </div>
+
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-muted">
+              Visit guidance
+            </p>
           </div>
 
           <div className="space-y-3">

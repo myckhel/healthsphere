@@ -1,24 +1,28 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardPlus, FileScan, UserPlus, WifiOff } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
 import { z } from "zod";
 import { recordReviewOptions, recordTypeOptions } from "@/app/app-content";
 import {
   createRecord,
+  describeApiError,
   formatPatientName,
   getApiErrorMessage,
   getRecord,
   listPatients,
   listRecords,
+  listTriageCases,
   queryKeys,
+  type ReviewStatus,
   reviewRecord,
 } from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
+import { Input } from "@/shared/ui/input";
 import { StatusPill } from "@/shared/ui/status-pill";
 import { Textarea } from "@/shared/ui/textarea";
 import { useAppStore } from "@/shared/state/app-store";
@@ -36,8 +40,30 @@ const recordSchema = z.object({
 
 type RecordFormValues = z.infer<typeof recordSchema>;
 
+const reviewFilterOptions: Array<{
+  value: "all" | ReviewStatus;
+  label: string;
+}> = [
+  { value: "all", label: "All records" },
+  { value: "pending", label: "Pending" },
+  { value: "needs_review", label: "Needs review" },
+  { value: "approved", label: "Approved" },
+];
+
+function formatDateTime(value: string | null) {
+  if (!value) {
+    return "Not recorded";
+  }
+
+  return new Date(value).toLocaleString();
+}
+
 export function ReceptionDashboardPage() {
   const queryClient = useQueryClient();
+  const [patientSearch, setPatientSearch] = useState("");
+  const [recordReviewFilter, setRecordReviewFilter] = useState<
+    "all" | ReviewStatus
+  >("all");
   const selectedPatientId = useAppStore((state) => state.selectedPatientId);
   const setSelectedPatientId = useAppStore(
     (state) => state.setSelectedPatientId,
@@ -46,12 +72,23 @@ export function ReceptionDashboardPage() {
   const setSelectedRecordId = useAppStore((state) => state.setSelectedRecordId);
 
   const patientsQuery = useQuery({
-    queryKey: queryKeys.patients(),
-    queryFn: () => listPatients(),
+    queryKey: queryKeys.patients(patientSearch),
+    queryFn: () => listPatients(patientSearch),
   });
   const recordsQuery = useQuery({
-    queryKey: queryKeys.records(selectedPatientId ?? undefined),
-    queryFn: () => listRecords(selectedPatientId ?? undefined),
+    queryKey: queryKeys.records(
+      selectedPatientId ?? undefined,
+      recordReviewFilter === "all" ? undefined : recordReviewFilter,
+    ),
+    queryFn: () =>
+      listRecords(
+        selectedPatientId ?? undefined,
+        recordReviewFilter === "all" ? undefined : recordReviewFilter,
+      ),
+  });
+  const triageCasesQuery = useQuery({
+    queryKey: queryKeys.triageCases,
+    queryFn: listTriageCases,
   });
   const recordDetailQuery = useQuery({
     queryKey: selectedRecordId
@@ -93,10 +130,7 @@ export function ReceptionDashboardPage() {
     mutationFn: createRecord,
     onSuccess: async (record) => {
       setSelectedRecordId(record.id);
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.records(selectedPatientId ?? undefined),
-      });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.records() });
+      await queryClient.invalidateQueries({ queryKey: ["records"] });
     },
   });
 
@@ -110,9 +144,7 @@ export function ReceptionDashboardPage() {
     }) => reviewRecord(recordId, reviewStatus),
     onSuccess: async (record) => {
       setSelectedRecordId(record.id);
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.records(selectedPatientId ?? undefined),
-      });
+      await queryClient.invalidateQueries({ queryKey: ["records"] });
       await queryClient.invalidateQueries({
         queryKey: queryKeys.record(record.id),
       });
@@ -138,6 +170,12 @@ export function ReceptionDashboardPage() {
   }
 
   const selectedRecord = recordDetailQuery.data;
+  const triageCasesError = triageCasesQuery.isError
+    ? describeApiError(
+        triageCasesQuery.error,
+        "Unable to load triage cases for this clinic.",
+      )
+    : null;
 
   return (
     <div className="space-y-6">
@@ -210,8 +248,14 @@ export function ReceptionDashboardPage() {
 
           <div className="space-y-3">
             <p className="text-sm font-semibold text-ink">Patients in scope</p>
+            <Input
+              value={patientSearch}
+              onChange={(event) => setPatientSearch(event.target.value)}
+              placeholder="Search by first name, last name, or ID"
+              aria-label="Search patients in clinic scope"
+            />
             {patientsQuery.data?.length ? (
-              patientsQuery.data.slice(0, 5).map((patient) => (
+              patientsQuery.data.map((patient) => (
                 <button
                   key={patient.id}
                   type="button"
@@ -232,7 +276,9 @@ export function ReceptionDashboardPage() {
               ))
             ) : (
               <div className="rounded-[1.25rem] bg-white/75 px-4 py-4 text-sm text-muted">
-                No patients found yet. Create one from the onboarding flow.
+                {patientSearch.trim()
+                  ? `No patients matched "${patientSearch.trim()}" in this clinic scope.`
+                  : "No patients found yet. Create one from the onboarding flow."}
               </div>
             )}
           </div>
@@ -359,6 +405,23 @@ export function ReceptionDashboardPage() {
             <StatusPill tone="success">GET /records</StatusPill>
           </div>
 
+          <div className="flex flex-wrap gap-2">
+            {reviewFilterOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setRecordReviewFilter(option.value)}
+                className={
+                  recordReviewFilter === option.value
+                    ? "rounded-full border border-brand bg-brand-soft px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-brand-strong"
+                    : "rounded-full border border-line bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted"
+                }
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
           <div className="space-y-3">
             {recordsQuery.data?.length ? (
               recordsQuery.data.map((record) => (
@@ -395,7 +458,9 @@ export function ReceptionDashboardPage() {
               ))
             ) : (
               <div className="rounded-[1.25rem] bg-white/75 px-4 py-4 text-sm text-muted">
-                No records found for the current scope.
+                {recordReviewFilter === "all"
+                  ? "No records found for the current scope."
+                  : `No ${recordReviewFilter.replace("_", " ")} records found for the current scope.`}
               </div>
             )}
           </div>
@@ -431,6 +496,41 @@ export function ReceptionDashboardPage() {
                 </p>
               </div>
 
+              <dl className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                    Reviewed by
+                  </dt>
+                  <dd className="mt-1 text-sm font-medium text-ink">
+                    {selectedRecord.reviewedBy || "Awaiting reviewer"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                    Reviewed at
+                  </dt>
+                  <dd className="mt-1 text-sm font-medium text-ink">
+                    {formatDateTime(selectedRecord.reviewedAt)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                    Created at
+                  </dt>
+                  <dd className="mt-1 text-sm font-medium text-ink">
+                    {formatDateTime(selectedRecord.createdAt)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                    Updated at
+                  </dt>
+                  <dd className="mt-1 text-sm font-medium text-ink">
+                    {formatDateTime(selectedRecord.updatedAt)}
+                  </dd>
+                </div>
+              </dl>
+
               {selectedRecord.structuredData ? (
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-muted">
@@ -438,6 +538,17 @@ export function ReceptionDashboardPage() {
                   </p>
                   <pre className="mt-2 overflow-x-auto rounded-[1rem] bg-panel px-3 py-3 text-xs text-muted">
                     {JSON.stringify(selectedRecord.structuredData, null, 2)}
+                  </pre>
+                </div>
+              ) : null}
+
+              {selectedRecord.provenance ? (
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted">
+                    Provenance
+                  </p>
+                  <pre className="mt-2 overflow-x-auto rounded-[1rem] bg-panel px-3 py-3 text-xs text-muted">
+                    {JSON.stringify(selectedRecord.provenance, null, 2)}
                   </pre>
                 </div>
               ) : null}
@@ -472,6 +583,114 @@ export function ReceptionDashboardPage() {
               </div>
             </div>
           ) : null}
+        </Card>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <Card className="space-y-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-muted">
+                Triage case review
+              </p>
+              <h3 className="mt-2 text-2xl text-ink">
+                Review the broader intake list, not only the active queue
+              </h3>
+            </div>
+            <StatusPill tone="info">GET /triage/cases</StatusPill>
+          </div>
+
+          <div className="space-y-3">
+            {triageCasesQuery.isPending ? (
+              <div className="rounded-[1.25rem] border border-line bg-white px-4 py-4 text-sm text-muted">
+                Loading triage cases for the current clinic scope.
+              </div>
+            ) : null}
+
+            {triageCasesError ? (
+              <InfoBanner title="Unable to load triage cases" tone="review">
+                <div className="space-y-2">
+                  <p>{triageCasesError.message}</p>
+                  {triageCasesError.details.map((detail) => (
+                    <p key={detail} className="text-sm leading-6 text-muted">
+                      {detail}
+                    </p>
+                  ))}
+                </div>
+              </InfoBanner>
+            ) : null}
+
+            {!triageCasesQuery.isPending && !triageCasesError
+              ? (triageCasesQuery.data ?? []).slice(0, 6).map((triageCase) => (
+                  <div
+                    key={triageCase.id}
+                    className="rounded-[1.5rem] border border-line bg-white px-4 py-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-ink">
+                            {triageCase.patientId || "Unlinked patient"}
+                          </p>
+                          <StatusPill
+                            tone={
+                              triageCase.reviewStatus === "approved"
+                                ? "success"
+                                : "review"
+                            }
+                          >
+                            {triageCase.reviewStatus}
+                          </StatusPill>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-muted">
+                          {triageCase.presentingComplaint}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2 text-right text-xs uppercase tracking-[0.18em] text-muted">
+                        <p>Urgency: {triageCase.urgencyLevel}</p>
+                        <p>Queue: {triageCase.recommendedQueue || "General"}</p>
+                        <p>Status: {triageCase.status}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              : null}
+
+            {!triageCasesQuery.isPending &&
+            !triageCasesError &&
+            !triageCasesQuery.data?.length ? (
+              <div className="rounded-[1.25rem] border border-line bg-white px-4 py-4 text-sm text-muted">
+                No triage cases found in the current clinic scope.
+              </div>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card className="space-y-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-muted">
+              Queue distinction
+            </p>
+            <h3 className="mt-2 text-2xl text-ink">
+              Cases and queue now stay visibly separate
+            </h3>
+          </div>
+
+          <div className="space-y-3 text-sm leading-6 text-muted">
+            <div className="rounded-[1.25rem] bg-white/80 px-4 py-4">
+              The triage case list is the broader review surface for intake
+              work, including items that may still need linking or review.
+            </div>
+            <div className="rounded-[1.25rem] bg-white/80 px-4 py-4">
+              The physician queue remains the narrower operational list of open
+              patient handoffs shaped for consultation flow.
+            </div>
+            <div className="rounded-[1.25rem] bg-brand-soft/70 px-4 py-4">
+              Keeping these views separate reduces confusion between intake
+              review work and live clinician workload.
+            </div>
+          </div>
         </Card>
       </section>
     </div>

@@ -9,11 +9,7 @@ import {
   patientLanguages,
   visitTypes,
 } from "@/app/app-content";
-import {
-  createPatient,
-  getApiErrorMessage,
-  queryKeys,
-} from "@/shared/api/healthsphere";
+import { createPatient, describeApiError } from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
@@ -85,7 +81,7 @@ export function PatientOnboardingPage() {
     onSuccess: async (patient) => {
       setSelectedPatientId(patient.id);
       setSelectedTriageCaseId(null);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.patients() });
+      await queryClient.invalidateQueries({ queryKey: ["patients"] });
       navigate("/patient/intake");
     },
   });
@@ -103,6 +99,13 @@ export function PatientOnboardingPage() {
       notes: values.notes?.trim() || null,
     });
   }
+
+  const patientCreateError = createPatientMutation.isError
+    ? describeApiError(
+        createPatientMutation.error,
+        "Check the patient details and try again.",
+      )
+    : null;
 
   return (
     <div className="space-y-6">
@@ -129,12 +132,16 @@ export function PatientOnboardingPage() {
           </div>
 
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
-            {createPatientMutation.isError ? (
+            {patientCreateError ? (
               <InfoBanner title="Unable to create patient" tone="review">
-                {getApiErrorMessage(
-                  createPatientMutation.error,
-                  "Check the patient details and try again.",
-                )}
+                <div className="space-y-2">
+                  <p>{patientCreateError.message}</p>
+                  {patientCreateError.details.map((detail) => (
+                    <p key={detail} className="text-sm leading-6 text-muted">
+                      {detail}
+                    </p>
+                  ))}
+                </div>
               </InfoBanner>
             ) : null}
 
@@ -223,6 +230,12 @@ export function PatientOnboardingPage() {
                 If the patient already has a clinic record, enter the existing
                 ID so staff can catch duplicates before the consultation begins.
               </p>
+              {patientCreateError?.kind === "duplicate_patient_external_id" ? (
+                <p className="text-sm text-warning">
+                  That patient ID already belongs to someone in this clinic.
+                  Search for the existing record or enter a different ID.
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-3">

@@ -23,6 +23,7 @@ Install dependencies and run the app:
 
 ```bash
 bun install
+cp .env.example .env
 bun run dev
 ```
 
@@ -34,10 +35,13 @@ You can override the local API and stub headers with Vite env vars:
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8000/api/v1
+VITE_API_PROXY_TARGET=http://localhost:8000
 VITE_ACTOR_ID=frontend-staff-01
 VITE_ACTOR_ROLE=staff
 VITE_CLINIC_ID=11111111-1111-1111-1111-111111111111
 ```
+
+Copy `.env.example` to `.env` for local development. `VITE_API_PROXY_TARGET` is used by the Vite dev server proxy, while `VITE_API_BASE_URL` is used by the browser client.
 
 These map to the backend's current local-development stub headers:
 

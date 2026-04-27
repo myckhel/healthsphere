@@ -1,4 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import {
+  getHealthStatus,
+  getReadinessStatus,
+  queryKeys,
+} from "@/shared/api/healthsphere";
 import { cn } from "@/shared/lib/cn";
 import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
@@ -9,6 +15,19 @@ export function AppShell() {
   const preferredLanguage = useAppStore(
     (state) => state.patientDraft.preferredLanguage,
   );
+  const healthQuery = useQuery({
+    queryKey: queryKeys.health,
+    queryFn: getHealthStatus,
+    retry: 0,
+    refetchInterval: 60_000,
+  });
+  const readinessQuery = useQuery({
+    queryKey: queryKeys.readiness,
+    queryFn: getReadinessStatus,
+    enabled: healthQuery.isSuccess,
+    retry: 0,
+    refetchInterval: 60_000,
+  });
 
   const isReceptionRoute = location.pathname.startsWith("/reception");
   const isPatientRoute = location.pathname.startsWith("/patient");
@@ -60,6 +79,41 @@ export function AppShell() {
           ? "Patient journey"
           : "Clinic operations overview";
 
+  const systemStatus = healthQuery.isError
+    ? {
+        label: "API unavailable",
+        detail:
+          "The frontend is running, but the backend API is not reachable. Reads and writes may fail until the service comes back.",
+        tone: "review" as const,
+      }
+    : readinessQuery.isError
+      ? {
+          label: "Backend degraded",
+          detail:
+            "The API is reachable, but the readiness probe failed. Expect partial functionality until backend dependencies recover.",
+          tone: "review" as const,
+        }
+      : readinessQuery.data?.status === "ready"
+        ? {
+            label: "Backend ready",
+            detail:
+              "Health and readiness probes are passing. Contract-backed workflows can read and write against the current clinic scope.",
+            tone: "success" as const,
+          }
+        : healthQuery.data?.status === "ok"
+          ? {
+              label: "Checking readiness",
+              detail:
+                "The API is alive and the app is waiting for the readiness probe before marking the backend fully available.",
+              tone: "info" as const,
+            }
+          : {
+              label: "Checking API",
+              detail:
+                "The app is verifying backend health in the background. Navigation remains available while probes load.",
+              tone: "info" as const,
+            };
+
   return (
     <div className="min-h-screen text-ink">
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
@@ -94,11 +148,15 @@ export function AppShell() {
                   <p className="text-xs uppercase tracking-[0.18em] text-muted">
                     System status
                   </p>
-                  <StatusPill tone={routeStatus.tone}>
-                    {routeStatus.label}
+                  <StatusPill tone={systemStatus.tone}>
+                    {systemStatus.label}
                   </StatusPill>
                 </div>
-                <p className="mt-2 text-sm text-muted">{routeStatus.detail}</p>
+                <p className="mt-2 text-sm text-muted">{systemStatus.detail}</p>
+                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-muted">
+                  Current route
+                </p>
+                <p className="mt-1 text-sm text-muted">{routeStatus.detail}</p>
               </div>
             </div>
           </div>

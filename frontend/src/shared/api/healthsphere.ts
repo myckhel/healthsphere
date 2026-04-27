@@ -1,10 +1,17 @@
 export type ActorRole = "patient" | "staff" | "clinician" | "admin";
 export type ConsultationStatus = "ready" | "in_progress" | "completed";
+export type ReviewStatus = "pending" | "needs_review" | "approved";
 export type ConsultationNextAction =
   | "follow-up-booking"
   | "nurse-handoff"
   | "referral"
   | "discharge";
+
+export type ServiceProbe = {
+  status: string;
+  service: string;
+  version: string;
+};
 
 export type ConsultationPatientSnapshot = {
   patientId: string;
@@ -163,7 +170,7 @@ export type RecordDetail = {
   title: string;
   recordType: string;
   source: string;
-  reviewStatus: string;
+  reviewStatus: ReviewStatus | string;
   reviewedBy: string | null;
   rawText: string | null;
   structuredData: Record<string, unknown> | null;
@@ -190,6 +197,28 @@ type ErrorEnvelope = {
   message: string;
   request_id?: string | null;
   details?: unknown;
+};
+
+type ValidationErrorDetail = {
+  loc?: Array<string | number>;
+  msg?: string;
+};
+
+export type ApiErrorKind =
+  | "duplicate_patient_external_id"
+  | "invalid_clinic_scope"
+  | "missing_clinic_scope"
+  | "out_of_clinic_scope"
+  | "cross_scope_missing"
+  | "validation"
+  | "generic";
+
+export type ApiErrorDescriptor = {
+  kind: ApiErrorKind;
+  message: string;
+  details: string[];
+  requestId: string | null;
+  status: number | null;
 };
 
 type BackendPatient = {
@@ -308,6 +337,12 @@ type BackendRecord = {
   updated_at: string;
 };
 
+type BackendServiceProbe = {
+  status: string;
+  service: string;
+  version: string;
+};
+
 const DEFAULT_CLINIC_ID = "11111111-1111-1111-1111-111111111111";
 
 export const appConfig = {
@@ -323,6 +358,10 @@ export const appConfig = {
     (import.meta.env.VITE_CLINIC_ID as string | undefined) ?? DEFAULT_CLINIC_ID,
 };
 
+// Keep frontend behavior aligned with the current backend contract.
+// Unsupported backend routes such as appointments and record upload must stay
+// clearly non-interactive in the UI until the backend stops returning 501.
+
 export class ApiError extends Error {
   code: string;
   status: number;
@@ -337,6 +376,160 @@ export class ApiError extends Error {
     this.requestId = payload.request_id ?? null;
     this.details = payload.details ?? null;
   }
+}
+
+function isValidationErrorDetailArray(
+  value: unknown,
+): value is ValidationErrorDetail[] {
+  return Array.isArray(value);
+}
+
+function normalizeValidationPath(detail: ValidationErrorDetail) {
+  const path = (detail.loc ?? [])
+    .filter((segment) => segment !== "body")
+    .map((segment) => String(segment))
+    .join(".");
+
+  return path || "request";
+}
+
+export function getApiValidationDetails(error: unknown) {
+  if (!(error instanceof ApiError) || error.code !== "validation_error") {
+    return [];
+  }
+
+  if (!isValidationErrorDetailArray(error.details)) {
+    return [];
+  }
+
+  return error.details
+    .map((detail) => {
+      const message = typeof detail.msg === "string" ? detail.msg : null;
+      if (!message) {
+        return null;
+      }
+
+      return `${normalizeValidationPath(detail)}: ${message}`;
+    })
+    .filter((detail): detail is string => Boolean(detail));
+}
+
+export function describeApiError(
+  error: unknown,
+  fallback = "Something went wrong.",
+): ApiErrorDescriptor {
+  if (error instanceof ApiError) {
+    const validationDetails = getApiValidationDetails(error);
+
+    if (
+      error.status === 409 &&
+      /external ID already exists in the current clinic scope/i.test(
+        error.message,
+      )
+    ) {
+      return {
+        kind: "duplicate_patient_external_id",
+        message:
+          "That patient ID is already in use in this clinic. Open the existing record or enter a different patient ID.",
+        details: [
+          "Duplicate IDs are checked within the current clinic scope only.",
+        ],
+        requestId: error.requestId,
+        status: error.status,
+      };
+    }
+
+    if (
+      error.status === 400 &&
+      /Invalid clinic scope in actor context/i.test(error.message)
+    ) {
+      return {
+        kind: "invalid_clinic_scope",
+        message:
+          "The clinic context on this request is invalid. Refresh the app or correct the configured clinic ID before trying again.",
+        details: [],
+        requestId: error.requestId,
+        status: error.status,
+      };
+    }
+
+    if (
+      error.status === 403 &&
+      /Clinic scope is required for this route/i.test(error.message)
+    ) {
+      return {
+        kind: "missing_clinic_scope",
+        message:
+          "This action needs an active clinic scope before it can continue.",
+        details: ["Open the app in the correct clinic workspace and retry."],
+        requestId: error.requestId,
+        status: error.status,
+      };
+    }
+
+    if (
+      error.status === 403 &&
+      /outside the assigned clinic scope/i.test(error.message)
+    ) {
+      return {
+        kind: "out_of_clinic_scope",
+        message:
+          "This write is outside the current clinic scope. Switch to the assigned clinic before saving changes.",
+        details: [],
+        requestId: error.requestId,
+        status: error.status,
+      };
+    }
+
+    if (error.status === 404 && /current clinic scope/i.test(error.message)) {
+      return {
+        kind: "cross_scope_missing",
+        message: "That item is not available in the current clinic scope.",
+        details: [
+          "Open the patient, triage case, consultation, or record from this clinic's own list or queue.",
+        ],
+        requestId: error.requestId,
+        status: error.status,
+      };
+    }
+
+    if (error.code === "validation_error") {
+      return {
+        kind: "validation",
+        message:
+          "Some details need correction before this request can be saved.",
+        details: validationDetails,
+        requestId: error.requestId,
+        status: error.status,
+      };
+    }
+
+    return {
+      kind: "generic",
+      message: error.message,
+      details: [],
+      requestId: error.requestId,
+      status: error.status,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      kind: "generic",
+      message: error.message,
+      details: [],
+      requestId: null,
+      status: null,
+    };
+  }
+
+  return {
+    kind: "generic",
+    message: fallback,
+    details: [],
+    requestId: null,
+    status: null,
+  };
 }
 
 function buildUrl(path: string, params?: Record<string, string | undefined>) {
@@ -578,14 +771,17 @@ function withClinicId<T extends { clinicId?: string | null }>(input: T) {
 }
 
 export const queryKeys = {
+  health: ["health"] as const,
+  readiness: ["readiness"] as const,
   patients: (search = "") => ["patients", search] as const,
   triageCases: ["triage-cases"] as const,
   triageQueue: ["triage-queue"] as const,
-  consultations: (patientId?: string) =>
-    ["consultations", patientId ?? "all"] as const,
+  consultations: (patientId?: string, status?: ConsultationStatus) =>
+    ["consultations", patientId ?? "all", status ?? "all"] as const,
   consultation: (consultationId: string) =>
     ["consultation", consultationId] as const,
-  records: (patientId?: string) => ["records", patientId ?? "all"] as const,
+  records: (patientId?: string, reviewStatus?: string) =>
+    ["records", patientId ?? "all", reviewStatus ?? "all"] as const,
   record: (recordId: string) => ["record", recordId] as const,
 };
 
@@ -599,13 +795,7 @@ export function getApiErrorMessage(
   error: unknown,
   fallback = "Something went wrong.",
 ) {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return fallback;
+  return describeApiError(error, fallback).message;
 }
 
 export function createEmptyConsultationDraft(): ConsultationNoteDraft {
@@ -617,6 +807,14 @@ export function createEmptyConsultationDraft(): ConsultationNoteDraft {
     carePlan: "",
     followUpInstructions: "",
   };
+}
+
+export async function getHealthStatus() {
+  return requestJson<BackendServiceProbe>("health");
+}
+
+export async function getReadinessStatus() {
+  return requestJson<BackendServiceProbe>("ready");
 }
 
 export async function listPatients(search?: string) {
@@ -675,12 +873,16 @@ export async function createTriageCase(input: CreateTriageCaseInput) {
   return normalizeTriageCase(data);
 }
 
-export async function listConsultations(patientId?: string) {
+export async function listConsultations(
+  patientId?: string,
+  status?: ConsultationStatus,
+) {
   const data = await requestJson<BackendConsultation[]>(
     "consultations",
     undefined,
     {
       patient_id: patientId,
+      status,
     },
   );
   return data.map(normalizeConsultation);
@@ -729,9 +931,13 @@ export async function updateConsultation(
   return normalizeConsultation(data);
 }
 
-export async function listRecords(patientId?: string) {
+export async function listRecords(
+  patientId?: string,
+  reviewStatus?: ReviewStatus | string,
+) {
   const data = await requestJson<BackendRecord[]>("records", undefined, {
     patient_id: patientId,
+    review_status: reviewStatus,
   });
   return data.map(normalizeRecord);
 }
