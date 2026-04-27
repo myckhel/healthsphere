@@ -7,11 +7,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { consultationNextActions } from "@/app/app-content";
-import {
-  getConsultation,
-  listPatients,
-  queryKeys,
-} from "@/shared/api/healthsphere";
+import { getConsultation, queryKeys } from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
@@ -37,15 +33,10 @@ export function PhysicianConsultationOutcomePage() {
     queryFn: () => getConsultation(consultationId as string),
     enabled: Boolean(consultationId),
   });
-  const patientsQuery = useQuery({
-    queryKey: queryKeys.patients(),
-    queryFn: () => listPatients(),
-  });
 
   const consultation = consultationQuery.data;
-  const patient = patientsQuery.data?.find(
-    (item) => item.id === consultation?.patientId,
-  );
+  const patientSnapshot = consultation?.patientSnapshot;
+  const draftPackage = consultation?.draftAssessmentPackage;
 
   const nextAction = consultationNextActions.find(
     (option) => option.value === consultation?.nextAction,
@@ -106,9 +97,7 @@ export function PhysicianConsultationOutcomePage() {
             Consultation outcome
           </p>
           <h2 className="mt-2 text-3xl text-ink">
-            {patient
-              ? `${patient.firstName} ${patient.lastName}`
-              : consultation.patientId}
+            {patientSnapshot?.fullName ?? consultation.patientId}
           </h2>
         </div>
 
@@ -166,6 +155,24 @@ export function PhysicianConsultationOutcomePage() {
                   {nextAction?.label ?? "Follow-up review"}
                 </dd>
               </div>
+              <div>
+                <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Review state
+                </dt>
+                <dd className="mt-1 text-sm font-medium text-ink">
+                  {consultation.clinicianReview.isFinalized
+                    ? "Clinician review confirmed"
+                    : "Review not recorded"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Reviewed by
+                </dt>
+                <dd className="mt-1 text-sm font-medium text-ink">
+                  {consultation.clinicianReview.reviewedBy || "Not recorded"}
+                </dd>
+              </div>
             </dl>
           </Card>
 
@@ -197,6 +204,13 @@ export function PhysicianConsultationOutcomePage() {
               follow-up, referral, or discharge instructions stay consistent
               with the final assessment.
             </div>
+
+            {consultation.clinicianReview.reviewedAt ? (
+              <div className="rounded-[1.5rem] border border-line bg-white px-4 py-4 text-sm leading-6 text-muted">
+                Final review was recorded at{" "}
+                {formatSessionTime(consultation.clinicianReview.reviewedAt)}.
+              </div>
+            ) : null}
           </Card>
         </div>
 
@@ -214,8 +228,17 @@ export function PhysicianConsultationOutcomePage() {
             <div>
               <p className="font-semibold text-ink">Chief complaint</p>
               <p>
-                {consultation.draftNote?.historyOfPresentIllness ||
+                {draftPackage?.complaintSummary ||
+                  patientSnapshot?.presentingComplaint ||
                   "No complaint note recorded."}
+              </p>
+            </div>
+
+            <div>
+              <p className="font-semibold text-ink">Draft package summary</p>
+              <p>
+                {draftPackage?.assessment ||
+                  "No draft assessment package is attached to this visit."}
               </p>
             </div>
 

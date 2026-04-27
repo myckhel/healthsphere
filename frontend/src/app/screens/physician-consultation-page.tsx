@@ -1,11 +1,10 @@
 import { ChevronLeft, FileText, ShieldAlert, Stethoscope } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { consultationNextActions } from "@/app/app-content";
 import {
   getConsultation,
-  listPatients,
   listRecords,
-  listTriageCases,
   queryKeys,
   updateConsultation,
 } from "@/shared/api/healthsphere";
@@ -14,6 +13,14 @@ import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
 import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "Not recorded";
+  }
+
+  return new Date(value).toLocaleDateString();
+}
 
 export function PhysicianConsultationPage() {
   const navigate = useNavigate();
@@ -30,14 +37,6 @@ export function PhysicianConsultationPage() {
       : ["consultation", "missing"],
     queryFn: () => getConsultation(consultationId as string),
     enabled: Boolean(consultationId),
-  });
-  const patientsQuery = useQuery({
-    queryKey: queryKeys.patients(),
-    queryFn: () => listPatients(),
-  });
-  const triageCasesQuery = useQuery({
-    queryKey: queryKeys.triageCases,
-    queryFn: listTriageCases,
   });
   const recordsQuery = useQuery({
     queryKey: queryKeys.records(consultationQuery.data?.patientId),
@@ -61,13 +60,12 @@ export function PhysicianConsultationPage() {
   });
 
   const consultation = consultationQuery.data;
-  const patient = patientsQuery.data?.find(
-    (item) => item.id === consultation?.patientId,
+  const patientSnapshot = consultation?.patientSnapshot;
+  const draftPackage = consultation?.draftAssessmentPackage;
+  const nextActionSuggestion = consultationNextActions.find(
+    (option) => option.value === draftPackage?.nextActionSuggestion,
   );
-  const triageCase = triageCasesQuery.data?.find(
-    (item) => item.id === consultation?.triageCaseId,
-  );
-  const firstName = patient?.firstName ?? "the patient";
+  const firstName = patientSnapshot?.fullName.split(" ")[0] ?? "the patient";
 
   if (!consultationId || consultationQuery.isError || !consultation) {
     return (
@@ -134,9 +132,7 @@ export function PhysicianConsultationPage() {
             Consultation workspace
           </p>
           <h2 className="mt-2 text-3xl text-ink">
-            {patient
-              ? `${patient.firstName} ${patient.lastName}`
-              : consultation.patientId}
+            {patientSnapshot?.fullName ?? consultation.patientId}
           </h2>
         </div>
 
@@ -169,15 +165,15 @@ export function PhysicianConsultationPage() {
                   Patient ID number
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {patient?.externalId || "No external ID supplied"}
+                  {patientSnapshot?.externalId || "No external ID supplied"}
                 </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-[0.18em] text-muted">
-                  Preferred language
+                  Date of birth
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {useAppStore.getState().patientDraft.preferredLanguage}
+                  {formatDate(patientSnapshot?.dateOfBirth ?? null)}
                 </dd>
               </div>
               <div>
@@ -185,7 +181,7 @@ export function PhysicianConsultationPage() {
                   Phone
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {patient?.phoneNumber || "Not provided"}
+                  {patientSnapshot?.phoneNumber || "Not provided"}
                 </dd>
               </div>
               <div>
@@ -193,15 +189,25 @@ export function PhysicianConsultationPage() {
                   Visit type
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {triageCase?.recommendedQueue || "General consultation"}
+                  {patientSnapshot?.recommendedQueue || "General consultation"}
                 </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-[0.18em] text-muted">
-                  Triage source
+                  Urgency
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {triageCase?.source || "intake"}
+                  {patientSnapshot?.urgencyLevel || "routine"}
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Symptoms captured
+                </dt>
+                <dd className="mt-1 text-sm leading-6 text-muted">
+                  {patientSnapshot?.symptoms.length
+                    ? patientSnapshot.symptoms.join(", ")
+                    : "No symptoms captured from triage yet."}
                 </dd>
               </div>
               <div className="sm:col-span-2">
@@ -209,7 +215,7 @@ export function PhysicianConsultationPage() {
                   Patient summary
                 </dt>
                 <dd className="mt-1 text-sm leading-6 text-muted">
-                  {triageCase?.presentingComplaint ||
+                  {patientSnapshot?.presentingComplaint ||
                     "No triage complaint found."}
                 </dd>
               </div>
@@ -280,8 +286,8 @@ export function PhysicianConsultationPage() {
               <div>
                 <p className="text-sm font-semibold text-ink">Draft summary</p>
                 <p className="text-sm text-muted">
-                  Generated from patient onboarding, triage intake, and saved
-                  record context
+                  Generated from triage intake, retrieved record context, and a
+                  draft assessment package that still requires clinician review
                 </p>
               </div>
             </div>
@@ -290,37 +296,59 @@ export function PhysicianConsultationPage() {
               <div>
                 <p className="font-semibold text-ink">Chief concern</p>
                 <p>
-                  {triageCase?.presentingComplaint || "No complaint captured."}
+                  {draftPackage?.complaintSummary ||
+                    patientSnapshot?.presentingComplaint ||
+                    "No complaint captured."}
                 </p>
               </div>
 
               <div>
-                <p className="font-semibold text-ink">
-                  Context available before consultation
-                </p>
+                <p className="font-semibold text-ink">Subjective draft</p>
                 <p>
-                  {firstName} is linked to {recordsQuery.data?.length ?? 0}{" "}
-                  saved record(s) and an active triage case. Review the record
-                  list and confirm the complaint directly with the patient
-                  before documenting a final assessment.
+                  {draftPackage?.subjective ||
+                    `${firstName} is linked to ${recordsQuery.data?.length ?? 0} saved record(s). Confirm the complaint directly with the patient before documenting a final assessment.`}
                 </p>
               </div>
 
               <div>
-                <p className="font-semibold text-ink">Suggested opening note</p>
+                <p className="font-semibold text-ink">Draft assessment</p>
                 <p>
-                  Patient presents for clinician review after intake. Confirm
-                  symptom severity, check danger signs, and use any attached
-                  records as context rather than final truth.
+                  {draftPackage?.assessment ||
+                    "No draft assessment package has been generated yet."}
                 </p>
               </div>
 
               <div>
-                <p className="font-semibold text-ink">Available records</p>
+                <p className="font-semibold text-ink">Draft plan</p>
+                <p>{draftPackage?.plan || "No draft plan captured yet."}</p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Suggested next action</p>
                 <p>
-                  {recordsQuery.data?.length
-                    ? recordsQuery.data.map((record) => record.title).join(", ")
-                    : "No records attached yet."}
+                  {nextActionSuggestion?.label ||
+                    "No suggested next step from the draft package."}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Follow-up questions</p>
+                <p>
+                  {draftPackage?.followUpQuestions.length
+                    ? draftPackage.followUpQuestions.join(" ")
+                    : "No follow-up prompts were generated."}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Retrieved context</p>
+                <p>
+                  {consultation.retrievedContext.length
+                    ? consultation.retrievedContext
+                        .slice(0, 3)
+                        .map((item) => `${item.title}: ${item.snippet}`)
+                        .join(" ")
+                    : "No reviewed record context is attached yet."}
                 </p>
               </div>
             </div>

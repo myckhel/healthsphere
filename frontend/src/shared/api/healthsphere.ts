@@ -6,6 +6,51 @@ export type ConsultationNextAction =
   | "referral"
   | "discharge";
 
+export type ConsultationPatientSnapshot = {
+  patientId: string;
+  fullName: string;
+  externalId: string | null;
+  dateOfBirth: string | null;
+  sexAtBirth: string | null;
+  phoneNumber: string | null;
+  consentStatus: string;
+  presentingComplaint: string | null;
+  urgencyLevel: string | null;
+  recommendedQueue: string | null;
+  symptoms: string[];
+};
+
+export type ConsultationRetrievedContext = {
+  recordId: string;
+  chunkId: string;
+  title: string;
+  recordType: string;
+  reviewStatus: string;
+  snippet: string;
+  similarityScore: number;
+  recencyScore: number;
+  combinedScore: number;
+  createdAt: string;
+};
+
+export type ConsultationDraftAssessmentPackage = {
+  source: "agent" | "fallback";
+  generatedAt: string;
+  reviewStatus: string;
+  complaintSummary: string;
+  subjective: string;
+  assessment: string;
+  plan: string;
+  followUpQuestions: string[];
+  nextActionSuggestion: ConsultationNextAction | null;
+};
+
+export type ConsultationClinicianReview = {
+  isFinalized: boolean;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+};
+
 export type ConsultationNoteDraft = {
   historyOfPresentIllness: string;
   redFlags: string;
@@ -88,6 +133,10 @@ export type ConsultationDetail = {
   startedAt: string | null;
   completedAt: string | null;
   draftNote: ConsultationNoteDraft | null;
+  patientSnapshot: ConsultationPatientSnapshot | null;
+  retrievedContext: ConsultationRetrievedContext[];
+  draftAssessmentPackage: ConsultationDraftAssessmentPackage | null;
+  clinicianReview: ConsultationClinicianReview;
 };
 
 export type CreateConsultationInput = {
@@ -104,6 +153,7 @@ export type UpdateConsultationInput = {
   status?: ConsultationStatus;
   nextAction?: ConsultationNextAction | null;
   draftNote?: Partial<ConsultationNoteDraft> | null;
+  finalAssessmentReviewed?: boolean | null;
 };
 
 export type RecordDetail = {
@@ -190,6 +240,55 @@ type BackendConsultation = {
   started_at: string | null;
   completed_at: string | null;
   draft_note: Record<string, unknown> | null;
+  patient_snapshot?: BackendConsultationPatientSnapshot | null;
+  retrieved_context?: BackendConsultationRetrievedContext[] | null;
+  draft_assessment_package?: BackendConsultationDraftAssessmentPackage | null;
+  clinician_review?: BackendConsultationClinicianReview | null;
+};
+
+type BackendConsultationPatientSnapshot = {
+  patient_id: string;
+  full_name: string;
+  external_id: string | null;
+  date_of_birth: string | null;
+  sex_at_birth: string | null;
+  phone_number: string | null;
+  consent_status: string;
+  presenting_complaint: string | null;
+  urgency_level: string | null;
+  recommended_queue: string | null;
+  symptoms: string[];
+};
+
+type BackendConsultationRetrievedContext = {
+  record_id: string;
+  chunk_id: string;
+  title: string;
+  record_type: string;
+  review_status: string;
+  snippet: string;
+  similarity_score: number;
+  recency_score: number;
+  combined_score: number;
+  created_at: string;
+};
+
+type BackendConsultationDraftAssessmentPackage = {
+  source: "agent" | "fallback";
+  generated_at: string;
+  review_status: string;
+  complaint_summary: string;
+  subjective: string;
+  assessment: string;
+  plan: string;
+  follow_up_questions: string[];
+  next_action_suggestion: ConsultationNextAction | null;
+};
+
+type BackendConsultationClinicianReview = {
+  is_finalized: boolean;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
 };
 
 type BackendRecord = {
@@ -368,6 +467,87 @@ function normalizeConsultation(input: BackendConsultation): ConsultationDetail {
     startedAt: input.started_at,
     completedAt: input.completed_at,
     draftNote: normalizeDraftNote(input.draft_note),
+    patientSnapshot: normalizeConsultationPatientSnapshot(
+      input.patient_snapshot ?? null,
+    ),
+    retrievedContext: (input.retrieved_context ?? []).map(
+      normalizeConsultationRetrievedContext,
+    ),
+    draftAssessmentPackage: normalizeDraftAssessmentPackage(
+      input.draft_assessment_package ?? null,
+    ),
+    clinicianReview: normalizeConsultationClinicianReview(
+      input.clinician_review ?? null,
+    ),
+  };
+}
+
+function normalizeConsultationPatientSnapshot(
+  input: BackendConsultationPatientSnapshot | null,
+): ConsultationPatientSnapshot | null {
+  if (!input) {
+    return null;
+  }
+
+  return {
+    patientId: input.patient_id,
+    fullName: input.full_name,
+    externalId: input.external_id,
+    dateOfBirth: input.date_of_birth,
+    sexAtBirth: input.sex_at_birth,
+    phoneNumber: input.phone_number,
+    consentStatus: input.consent_status,
+    presentingComplaint: input.presenting_complaint,
+    urgencyLevel: input.urgency_level,
+    recommendedQueue: input.recommended_queue,
+    symptoms: input.symptoms ?? [],
+  };
+}
+
+function normalizeConsultationRetrievedContext(
+  input: BackendConsultationRetrievedContext,
+): ConsultationRetrievedContext {
+  return {
+    recordId: input.record_id,
+    chunkId: input.chunk_id,
+    title: input.title,
+    recordType: input.record_type,
+    reviewStatus: input.review_status,
+    snippet: input.snippet,
+    similarityScore: input.similarity_score,
+    recencyScore: input.recency_score,
+    combinedScore: input.combined_score,
+    createdAt: input.created_at,
+  };
+}
+
+function normalizeDraftAssessmentPackage(
+  input: BackendConsultationDraftAssessmentPackage | null,
+): ConsultationDraftAssessmentPackage | null {
+  if (!input) {
+    return null;
+  }
+
+  return {
+    source: input.source,
+    generatedAt: input.generated_at,
+    reviewStatus: input.review_status,
+    complaintSummary: input.complaint_summary,
+    subjective: input.subjective,
+    assessment: input.assessment,
+    plan: input.plan,
+    followUpQuestions: input.follow_up_questions ?? [],
+    nextActionSuggestion: input.next_action_suggestion,
+  };
+}
+
+function normalizeConsultationClinicianReview(
+  input: BackendConsultationClinicianReview | null,
+): ConsultationClinicianReview {
+  return {
+    isFinalized: input?.is_finalized ?? false,
+    reviewedBy: input?.reviewed_by ?? null,
+    reviewedAt: input?.reviewed_at ?? null,
   };
 }
 
@@ -542,6 +722,7 @@ export async function updateConsultation(
         status: input.status,
         next_action: input.nextAction,
         draft_note: input.draftNote,
+        final_assessment_reviewed: input.finalAssessmentReviewed,
       }),
     },
   );

@@ -13,9 +13,7 @@ import {
   createEmptyConsultationDraft,
   getConsultation,
   getApiErrorMessage,
-  listPatients,
   listRecords,
-  listTriageCases,
   queryKeys,
   updateConsultation,
   type ConsultationNextAction,
@@ -23,6 +21,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
+import { Input } from "@/shared/ui/input";
 import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
 import { Textarea } from "@/shared/ui/textarea";
@@ -36,6 +35,7 @@ const consultationSchema = z.object({
   carePlan: z.string(),
   followUpInstructions: z.string(),
   nextAction: z.string(),
+  finalAssessmentReviewed: z.boolean(),
 });
 
 type ConsultationFormValues = z.infer<typeof consultationSchema>;
@@ -49,6 +49,14 @@ function formatSessionTime(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "Not recorded";
+  }
+
+  return new Date(value).toLocaleDateString();
 }
 
 export function PhysicianConsultationActivePage() {
@@ -66,14 +74,6 @@ export function PhysicianConsultationActivePage() {
     queryFn: () => getConsultation(consultationId as string),
     enabled: Boolean(consultationId),
   });
-  const patientsQuery = useQuery({
-    queryKey: queryKeys.patients(),
-    queryFn: () => listPatients(),
-  });
-  const triageCasesQuery = useQuery({
-    queryKey: queryKeys.triageCases,
-    queryFn: listTriageCases,
-  });
   const recordsQuery = useQuery({
     queryKey: queryKeys.records(consultationQuery.data?.patientId),
     queryFn: () => listRecords(consultationQuery.data?.patientId),
@@ -87,16 +87,13 @@ export function PhysicianConsultationActivePage() {
         clinicianName: localClinicianName,
         ...createEmptyConsultationDraft(),
         nextAction: "follow-up-booking",
+        finalAssessmentReviewed: false,
       },
     });
 
   const consultation = consultationQuery.data;
-  const patient = patientsQuery.data?.find(
-    (item) => item.id === consultation?.patientId,
-  );
-  const triageCase = triageCasesQuery.data?.find(
-    (item) => item.id === consultation?.triageCaseId,
-  );
+  const patientSnapshot = consultation?.patientSnapshot;
+  const draftPackage = consultation?.draftAssessmentPackage;
 
   useEffect(() => {
     if (!consultation) {
@@ -108,6 +105,8 @@ export function PhysicianConsultationActivePage() {
       clinicianName: consultation.clinicianName ?? localClinicianName,
       ...draft,
       nextAction: consultation.nextAction ?? "follow-up-booking",
+      finalAssessmentReviewed:
+        consultation.clinicianReview.isFinalized ?? false,
     });
   }, [consultation, localClinicianName, reset]);
 
@@ -149,6 +148,7 @@ export function PhysicianConsultationActivePage() {
           followUpInstructions: values.followUpInstructions,
         },
         status: "completed",
+        finalAssessmentReviewed: values.finalAssessmentReviewed,
       }),
     onSuccess: async (updated) => {
       setClinicianName(updated.clinicianName ?? localClinicianName);
@@ -163,6 +163,10 @@ export function PhysicianConsultationActivePage() {
     control,
     name: "nextAction",
   }) as ConsultationNextAction;
+  const finalAssessmentReviewed = useWatch({
+    control,
+    name: "finalAssessmentReviewed",
+  });
   const assessment = useWatch({ control, name: "assessment" });
   const carePlan = useWatch({ control, name: "carePlan" });
   const canComplete =
@@ -215,9 +219,7 @@ export function PhysicianConsultationActivePage() {
             Active consultation
           </p>
           <h2 className="mt-2 text-3xl text-ink">
-            {patient
-              ? `${patient.firstName} ${patient.lastName}`
-              : consultation.patientId}
+            {patientSnapshot?.fullName ?? consultation.patientId}
           </h2>
         </div>
 
@@ -261,10 +263,10 @@ export function PhysicianConsultationActivePage() {
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-[0.18em] text-muted">
-                  Preferred language
+                  Date of birth
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {useAppStore.getState().patientDraft.preferredLanguage}
+                  {formatDate(patientSnapshot?.dateOfBirth ?? null)}
                 </dd>
               </div>
               <div>
@@ -272,7 +274,23 @@ export function PhysicianConsultationActivePage() {
                   Visit type
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-ink">
-                  {triageCase?.recommendedQueue || "General consultation"}
+                  {patientSnapshot?.recommendedQueue || "General consultation"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Urgency
+                </dt>
+                <dd className="mt-1 text-sm font-medium text-ink">
+                  {patientSnapshot?.urgencyLevel || "routine"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Consent status
+                </dt>
+                <dd className="mt-1 text-sm font-medium text-ink">
+                  {patientSnapshot?.consentStatus || "Not recorded"}
                 </dd>
               </div>
               <div className="sm:col-span-2">
@@ -280,8 +298,18 @@ export function PhysicianConsultationActivePage() {
                   Intake summary
                 </dt>
                 <dd className="mt-1 text-sm leading-6 text-muted">
-                  {triageCase?.presentingComplaint ||
+                  {patientSnapshot?.presentingComplaint ||
                     "No triage complaint found."}
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Symptoms captured
+                </dt>
+                <dd className="mt-1 text-sm leading-6 text-muted">
+                  {patientSnapshot?.symptoms.length
+                    ? patientSnapshot.symptoms.join(", ")
+                    : "No symptoms captured from triage yet."}
                 </dd>
               </div>
             </dl>
@@ -306,16 +334,25 @@ export function PhysicianConsultationActivePage() {
                 <p className="text-sm text-muted">
                   Use the intake summary and any saved records as context, then
                   verify them directly with{" "}
-                  {patient?.firstName ?? "the patient"}.
+                  {patientSnapshot?.fullName.split(" ")[0] ?? "the patient"}.
                 </p>
               </div>
             </div>
 
-            <div className="rounded-[1.5rem] bg-white/80 px-4 py-4 text-sm leading-6 text-muted">
-              Confirm identity, re-state the complaint in the patient's own
-              words, and check danger signs before finalizing the plan. This
-              patient currently has {recordsQuery.data?.length ?? 0} saved
-              record(s) available for review.
+            <div className="space-y-3 rounded-[1.5rem] bg-white/80 px-4 py-4 text-sm leading-6 text-muted">
+              <p>
+                {draftPackage?.assessment ||
+                  "No draft assessment package has been generated yet."}
+              </p>
+              <p>
+                {draftPackage?.plan ||
+                  "No draft plan is attached yet. Keep the clinician-authored note as the source of truth."}
+              </p>
+              <p>
+                This patient currently has {recordsQuery.data?.length ?? 0}{" "}
+                saved record(s) and {consultation.retrievedContext.length}{" "}
+                retrieved context item(s) available for review.
+              </p>
             </div>
           </Card>
         </div>
@@ -339,7 +376,9 @@ export function PhysicianConsultationActivePage() {
                 Chief complaint
               </p>
               <p className="mt-2 text-sm leading-6 text-ink">
-                {triageCase?.presentingComplaint || "No complaint captured."}
+                {draftPackage?.complaintSummary ||
+                  patientSnapshot?.presentingComplaint ||
+                  "No complaint captured."}
               </p>
             </div>
 
@@ -350,11 +389,7 @@ export function PhysicianConsultationActivePage() {
               >
                 Clinician name
               </label>
-              <input
-                id="clinicianName"
-                {...register("clinicianName")}
-                className="h-12 w-full rounded-field border border-line bg-white px-4 text-ink outline-none"
-              />
+              <Input id="clinicianName" {...register("clinicianName")} />
             </div>
 
             <div className="space-y-5">
@@ -438,14 +473,54 @@ export function PhysicianConsultationActivePage() {
               })}
             </div>
 
+            <div className="rounded-[1.5rem] border border-line bg-white px-4 py-4">
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-line text-brand"
+                  {...register("finalAssessmentReviewed")}
+                />
+                <span className="space-y-1 text-sm leading-6 text-muted">
+                  <span className="block font-medium text-ink">
+                    I have reviewed the final assessment and care plan.
+                  </span>
+                  <span className="block">
+                    Completion now requires explicit clinician review so the
+                    final note and operational next step are clearly owned.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {consultation.clinicianReview.isFinalized ? (
+              <InfoBanner
+                title="Final assessment already reviewed"
+                tone="success"
+              >
+                Reviewed by{" "}
+                {consultation.clinicianReview.reviewedBy || "the clinician"} at{" "}
+                {formatSessionTime(consultation.clinicianReview.reviewedAt)}.
+              </InfoBanner>
+            ) : null}
+
             <div className="flex flex-wrap gap-3">
               <Button
                 type="button"
-                disabled={!canComplete || completeMutation.isPending}
+                disabled={
+                  !canComplete ||
+                  !finalAssessmentReviewed ||
+                  completeMutation.isPending
+                }
                 onClick={handleSubmit((values) => {
                   if (!canComplete) {
                     setSubmitError(
                       "Assessment and plan are required before the consultation can be completed.",
+                    );
+                    return;
+                  }
+                  if (!values.finalAssessmentReviewed) {
+                    setSubmitError(
+                      "Explicit clinician review is required before the consultation can be completed.",
                     );
                     return;
                   }
