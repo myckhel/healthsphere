@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.consultation_scribe import run_consultation_scribe_agent
+from app.core.ai_usage import AIUsageContext
 from app.core.config import settings
 from app.models.consultation_session import ConsultationSession
 from app.models.patient import Patient
@@ -19,6 +20,7 @@ from app.schemas.consultation import (
     ConsultationRetrievedContext,
     ConsultationSelectedLabRecord,
 )
+from app.services.ai_usage_service import AIUsageService
 from app.services.lab_result_translation_service import LabResultTranslationService
 from app.services.retrieval_service import RetrievalService
 
@@ -28,10 +30,13 @@ class ConsultationSupportService:
         self,
         retrieval_service: RetrievalService | None = None,
         lab_result_translation_service: LabResultTranslationService | None = None,
+        ai_usage_service: AIUsageService | None = None,
     ) -> None:
         self.retrieval_service = retrieval_service or RetrievalService()
+        self.ai_usage_service = ai_usage_service or AIUsageService()
         self.lab_result_translation_service = (
-            lab_result_translation_service or LabResultTranslationService()
+            lab_result_translation_service
+            or LabResultTranslationService(ai_usage_service=self.ai_usage_service)
         )
 
     async def build_consultation_draft_workspace(
@@ -42,6 +47,9 @@ class ConsultationSupportService:
         patient: Patient,
         triage_case: TriageCase | None,
         existing_draft_note: dict[str, object] | None,
+        actor_id: str | None = None,
+        actor_role: str | None = None,
+        request_id: str | None = None,
     ) -> tuple[
         ConsultationPatientSnapshot,
         list[ConsultationRetrievedContext],
@@ -59,7 +67,13 @@ class ConsultationSupportService:
             patient_id=patient.id,
         )
         translated_lab_result = await self.build_translated_lab_result(
+            db,
             selected_lab_record=selected_lab_record_model,
+            consultation=consultation,
+            patient=patient,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            request_id=request_id,
         )
         retrieved_context = await self.build_retrieved_context(
             db,
@@ -68,12 +82,16 @@ class ConsultationSupportService:
             query_text=patient_snapshot.presenting_complaint,
         )
         draft_package = await self.build_draft_assessment_package(
+            db,
             consultation=consultation,
             patient_snapshot=patient_snapshot,
             retrieved_context=retrieved_context,
             selected_lab_record=selected_lab_record,
             translated_lab_result=translated_lab_result,
             existing_draft_note=existing_draft_note,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            request_id=request_id,
         )
         return (
             patient_snapshot,
@@ -163,17 +181,35 @@ class ConsultationSupportService:
 
     async def build_translated_lab_result(
         self,
+        db: AsyncSession,
         *,
         selected_lab_record: Record | None,
+        consultation: ConsultationSession,
+        patient: Patient,
+        actor_id: str | None,
+        actor_role: str | None,
+        request_id: str | None,
     ) -> ConsultationLabResultTranslation | None:
         if selected_lab_record is None:
             return None
         return await self.lab_result_translation_service.translate_record(
+            db=db,
             record=selected_lab_record,
+            usage_context=AIUsageContext(
+                workflow="lab_result_translation",
+                actor_id=actor_id,
+                actor_role=actor_role,
+                clinic_id=consultation.clinic_id,
+                patient_id=patient.id,
+                entity_type="consultation_session",
+                entity_id=str(consultation.id) if consultation.id else None,
+                request_id=request_id,
+            ),
         )
 
     async def build_draft_assessment_package(
         self,
+        db: AsyncSession,
         *,
         consultation: ConsultationSession,
         patient_snapshot: ConsultationPatientSnapshot,
@@ -181,6 +217,9 @@ class ConsultationSupportService:
         selected_lab_record: ConsultationSelectedLabRecord | None,
         translated_lab_result: ConsultationLabResultTranslation | None,
         existing_draft_note: dict[str, object] | None,
+        actor_id: str | None,
+        actor_role: str | None,
+        request_id: str | None,
     ) -> ConsultationDraftAssessmentPackage:
         complaint_summary = patient_snapshot.presenting_complaint or "Consultation requires clinician review."
         payload = {
@@ -201,7 +240,29 @@ class ConsultationSupportService:
 
         if settings.openai_api_key:
             try:
-                result = await run_consultation_scribe_agent(payload)
+                usage_context = AIUsageContext(
+                    workflow="consultation_support",
+                    actor_id=actor_id,
+                    actor_role=actor_role,
+                    clinic_id=consultation.clinic_id,
+                    patient_id=patient_snapshot.patient_id,
+                    entity_type="consultation_session",
+                    entity_id=str(consultation.id) if consultation.id else None,
+                    request_id=request_id,
+                )
+
+                async def usage_hook(details):
+                    await self.ai_usage_service.record_usage(
+                        db,
+                        context=usage_context,
+                        usage=details,
+                        model=settings.openai_model,
+                    )
+
+                result = await run_consultation_scribe_agent(
+                    payload,
+                    usage_hook=usage_hook,
+                )
                 return ConsultationDraftAssessmentPackage(
                     source="agent",
                     generated_at=datetime.now(timezone.utc),

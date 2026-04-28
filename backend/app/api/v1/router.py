@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.api.v1 import appointments, consultations, health, patients, records, triage
+from app.api.v1 import appointments, consultations, health, monitoring, patients, records, triage
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router)
+api_router.include_router(monitoring.router)
 api_router.include_router(patients.router)
 api_router.include_router(appointments.router)
 api_router.include_router(consultations.router)

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.clinic_scope import require_actor_clinic_scope, resolve_existing_clinic_scope
 from app.api.deps import get_request_actor
 from app.core.database import get_db
+from app.core.monitoring import default_monitoring_service
 from app.domain import apply_triage_guardrails
 from app.domain.review_policy import resolve_review_transition
 from app.models.audit_event import AuditEvent
@@ -103,6 +104,18 @@ async def create_triage_case(
         recommended_action=payload.recommended_action,
         model_output=payload.model_output,
     )
+    if guardrails["escalate_immediately"]:
+        default_monitoring_service.record_guardrail_event(
+            event_type="triage_escalation",
+            message="Deterministic triage guardrails forced clinician escalation.",
+            route="/api/v1/triage/cases",
+            actor_role=actor.role,
+            clinic_id=str(clinic_id) if clinic_id is not None else actor.clinic_id,
+            metadata={
+                "urgency_level": payload.urgency_level,
+                "red_flag_reasons": guardrails["red_flag_reasons"],
+            },
+        )
 
     reviewed_by, reviewed_at = resolve_review_transition(
         review_status=payload.review_status,

@@ -8,10 +8,13 @@ from agents import Agent, ModelSettings, RunConfig, Runner
 from agents.models.multi_provider import MultiProvider
 from pydantic import BaseModel
 
+from app.core.ai_usage import AIUsageDetails
 from app.core.config import settings
+from app.core.monitoring import default_monitoring_service
 
 OutputT = TypeVar("OutputT", bound=BaseModel)
 RunnerCallable = Callable[..., Awaitable[Any]]
+UsageHook = Callable[[AIUsageDetails], Awaitable[None]]
 
 
 class AgentRuntime:
@@ -27,6 +30,7 @@ class AgentRuntime:
         payload: dict[str, Any],
         tools: Sequence[Any] = (),
         max_turns: int = 6,
+        usage_hook: UsageHook | None = None,
     ) -> OutputT:
         if self._runner is Runner.run and not settings.openai_api_key:
             raise RuntimeError(
@@ -47,20 +51,46 @@ class AgentRuntime:
                 store=False,
             ),
         )
-        result = await self._runner(
-            agent,
-            self._serialize_payload(payload),
-            max_turns=max_turns,
-            run_config=RunConfig(
-                model=settings.openai_model,
-                model_provider=MultiProvider(
-                    openai_api_key=settings.openai_api_key,
-                    openai_base_url=settings.openai_api_base_url,
+        try:
+            result = await self._runner(
+                agent,
+                self._serialize_payload(payload),
+                max_turns=max_turns,
+                run_config=RunConfig(
+                    model=settings.openai_model,
+                    model_provider=MultiProvider(
+                        openai_api_key=settings.openai_api_key,
+                        openai_base_url=settings.openai_api_base_url,
+                    ),
+                    tracing_disabled=True,
+                    workflow_name=f"HealthSphere {agent_name}",
                 ),
-                tracing_disabled=True,
-                workflow_name=f"HealthSphere {agent_name}",
-            ),
-        )
+            )
+        except Exception:
+            default_monitoring_service.record_ai_run(
+                workflow=agent_name,
+                status="error",
+                request_count=0,
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+                estimated_cost_usd=0.0,
+            )
+            raise
+
+        usage_details = self._extract_usage_details(result)
+        if usage_hook is not None:
+            await usage_hook(usage_details)
+        elif usage_details.total_tokens > 0:
+            default_monitoring_service.record_ai_run(
+                workflow=agent_name,
+                status="completed",
+                request_count=usage_details.requests,
+                input_tokens=usage_details.input_tokens,
+                output_tokens=usage_details.output_tokens,
+                total_tokens=usage_details.total_tokens,
+                estimated_cost_usd=0.0,
+            )
         return output_type.model_validate(result.final_output)
 
     @staticmethod
@@ -89,6 +119,27 @@ class AgentRuntime:
                 if index < 24
             }
         return value
+
+    @staticmethod
+    def _extract_usage_details(result: Any) -> AIUsageDetails:
+        usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
+        if usage is None:
+            return AIUsageDetails()
+
+        input_token_details = getattr(usage, "input_tokens_details", None)
+        output_token_details = getattr(usage, "output_tokens_details", None)
+        return AIUsageDetails(
+            requests=int(getattr(usage, "requests", 0) or 0),
+            input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+            output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+            total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+            cached_input_tokens=int(
+                getattr(input_token_details, "cached_tokens", 0) or 0
+            ),
+            reasoning_tokens=int(
+                getattr(output_token_details, "reasoning_tokens", 0) or 0
+            ),
+        )
 
 
 default_agent_runtime = AgentRuntime()

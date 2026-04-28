@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, Mock
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+from app.core.config import settings
 from app.core.database import engine, get_db
+from app.core.monitoring import default_monitoring_service
 from app.main import app
 from app.services.rate_limit_service import default_rate_limit_service
 
@@ -38,6 +40,26 @@ async def _clear_rate_limits() -> None:
     default_rate_limit_service.clear()
     yield
     default_rate_limit_service.clear()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clear_monitoring() -> None:
+    default_monitoring_service.reset()
+    yield
+    default_monitoring_service.reset()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _disable_live_ai_for_tests() -> None:
+    original_api_key = settings.openai_api_key
+    original_api_base_url = settings.openai_api_base_url
+    settings.openai_api_key = None
+    settings.openai_api_base_url = None
+    try:
+        yield
+    finally:
+        settings.openai_api_key = original_api_key
+        settings.openai_api_base_url = original_api_base_url
 
 
 @pytest_asyncio.fixture(autouse=True)

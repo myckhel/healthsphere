@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None
     openai_model: str = "gpt-4.1-mini"
+    openai_input_cost_per_million_tokens_usd: float = 0.4
+    openai_cached_input_cost_per_million_tokens_usd: float | None = 0.1
+    openai_output_cost_per_million_tokens_usd: float = 1.6
     agent_payload_char_budget: int = 12000
     agent_max_output_tokens: int = 900
 
@@ -51,6 +54,8 @@ class Settings(BaseSettings):
 
     expensive_endpoint_rate_limit: int = 20
     expensive_endpoint_rate_window_seconds: int = 60
+    monitoring_guardrail_event_limit: int = 100
+    monitoring_request_duration_window: int = 500
 
     calendly_api_token: str | None = None
 

@@ -1,4 +1,6 @@
+from app.core.ai_usage import AIUsageContext, AIUsageDetails
 from app.services.auth_service import ClerkAuthService
+from app.services.ai_usage_service import AIUsageService
 from app.services.clinic_service import (
     DEFAULT_DEV_CLINIC_ID,
     DEFAULT_DEV_CLINIC_NAME,
@@ -15,6 +17,9 @@ from app.services.retrieval_service import RetrievalService
 from app.services.scheduling_service import SchedulingService
 
 __all__ = [
+    "AIUsageContext",
+    "AIUsageDetails",
+    "AIUsageService",
     "ClerkAuthService",
     "DEFAULT_DEV_CLINIC_ID",
     "DEFAULT_DEV_CLINIC_NAME",

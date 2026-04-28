@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +12,7 @@ from app.api.deps import get_request_actor
 from app.api.clinic_scope import require_actor_clinic_scope, resolve_existing_clinic_scope
 from app.api.guardrails import rate_limit_expensive_endpoint
 from app.core.database import get_db
+from app.core.monitoring import default_monitoring_service
 from app.domain import (
     detect_red_flag_reasons,
     discharge_allowed_for_triage,
@@ -206,6 +207,8 @@ async def _build_consultation_draft_workspace(
     db: AsyncSession,
     consultation: ConsultationSession,
     consultation_support_service: ConsultationSupportService,
+    actor: RequestActor | None = None,
+    request_id: str | None = None,
 ) -> tuple[
     Patient | None,
     TriageCase | None,
@@ -243,6 +246,9 @@ async def _build_consultation_draft_workspace(
             patient=patient,
             triage_case=triage_case,
             existing_draft_note=consultation.draft_note,
+            actor_id=actor.subject if actor is not None else None,
+            actor_role=actor.role if actor is not None else None,
+            request_id=request_id,
         )
     )
     return (
@@ -287,6 +293,8 @@ async def _refresh_consultation_draft_package(
     db: AsyncSession,
     consultation: ConsultationSession,
     consultation_support_service: ConsultationSupportService,
+    actor: RequestActor | None = None,
+    request_id: str | None = None,
 ) -> tuple[
     Any | None,
     list[Any],
@@ -299,6 +307,8 @@ async def _refresh_consultation_draft_package(
             db=db,
             consultation=consultation,
             consultation_support_service=consultation_support_service,
+            actor=actor,
+            request_id=request_id,
         )
     )
 
@@ -330,6 +340,8 @@ async def _build_consultation_detail(
     db: AsyncSession,
     consultation: ConsultationSession,
     consultation_support_service: ConsultationSupportService,
+    actor: RequestActor | None = None,
+    request_id: str | None = None,
     patient_snapshot=None,
     retrieved_context: list[Any] | None = None,
     draft_package: ConsultationDraftAssessmentPackage | None = None,
@@ -348,6 +360,8 @@ async def _build_consultation_detail(
         db=db,
         consultation=consultation,
         consultation_support_service=consultation_support_service,
+        actor=actor,
+        request_id=request_id,
     )
 
     resolved_patient_snapshot = (
@@ -401,6 +415,7 @@ async def list_consultations(
 @router.get("/{consultation_id}", response_model=ConsultationSessionDetail)
 async def get_consultation(
     consultation_id: uuid.UUID,
+    request: Request,
     actor: RequestActor = Depends(get_request_actor),
     _rate_limit: None = Depends(rate_limit_expensive_endpoint("consultations_get")),
     consultation_support_service: ConsultationSupportService = Depends(
@@ -422,12 +437,15 @@ async def get_consultation(
         db=db,
         consultation=consultation,
         consultation_support_service=consultation_support_service,
+        actor=actor,
+        request_id=getattr(request.state, "request_id", None),
     )
 
 
 @router.post("", response_model=ConsultationSessionDetail, status_code=status.HTTP_201_CREATED)
 async def create_consultation(
     payload: ConsultationSessionCreateRequest,
+    request: Request,
     actor: RequestActor = Depends(get_request_actor),
     _rate_limit: None = Depends(rate_limit_expensive_endpoint("consultations_create")),
     consultation_support_service: ConsultationSupportService = Depends(
@@ -475,6 +493,8 @@ async def create_consultation(
             db=db,
             consultation=consultation,
             consultation_support_service=consultation_support_service,
+            actor=actor,
+            request_id=getattr(request.state, "request_id", None),
         )
     )
     db.add(consultation)
@@ -501,6 +521,8 @@ async def create_consultation(
         db=db,
         consultation=consultation,
         consultation_support_service=consultation_support_service,
+        actor=actor,
+        request_id=getattr(request.state, "request_id", None),
         patient_snapshot=patient_snapshot,
         retrieved_context=retrieved_context,
         draft_package=draft_package,
@@ -513,6 +535,7 @@ async def create_consultation(
 async def update_consultation(
     consultation_id: uuid.UUID,
     payload: ConsultationSessionUpdateRequest,
+    request: Request,
     actor: RequestActor = Depends(get_request_actor),
     _rate_limit: None = Depends(rate_limit_expensive_endpoint("consultations_update")),
     consultation_support_service: ConsultationSupportService = Depends(
@@ -592,6 +615,18 @@ async def update_consultation(
                     urgency_level=triage_case.urgency_level,
                     red_flag_reasons=red_flag_reasons,
                 ):
+                    default_monitoring_service.record_guardrail_event(
+                        event_type="unsafe_discharge_blocked",
+                        message="High-risk triage cases cannot be discharged without explicit escalation.",
+                        route=f"/api/v1/consultations/{consultation_id}",
+                        actor_role=actor.role,
+                        clinic_id=str(consultation.clinic_id) if consultation.clinic_id else actor.clinic_id,
+                        request_id=getattr(request.state, "request_id", None),
+                        metadata={
+                            "urgency_level": triage_case.urgency_level,
+                            "red_flag_reasons": red_flag_reasons,
+                        },
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="High-risk triage cases cannot be discharged without explicit escalation.",
@@ -627,6 +662,8 @@ async def update_consultation(
         db=db,
         consultation=consultation,
         consultation_support_service=consultation_support_service,
+        actor=actor,
+        request_id=getattr(request.state, "request_id", None),
     )
 
 
@@ -636,6 +673,7 @@ async def update_consultation(
 )
 async def regenerate_consultation_draft_assessment(
     consultation_id: uuid.UUID,
+    request: Request,
     payload: ConsultationDraftRegenerateRequest | None = None,
     actor: RequestActor = Depends(get_request_actor),
     _rate_limit: None = Depends(rate_limit_expensive_endpoint("consultations_regenerate")),
@@ -671,6 +709,8 @@ async def regenerate_consultation_draft_assessment(
             db=db,
             consultation=consultation,
             consultation_support_service=consultation_support_service,
+            actor=actor,
+            request_id=getattr(request.state, "request_id", None),
         )
     )
     await _write_audit_event(
@@ -693,6 +733,8 @@ async def regenerate_consultation_draft_assessment(
         db=db,
         consultation=consultation,
         consultation_support_service=consultation_support_service,
+        actor=actor,
+        request_id=getattr(request.state, "request_id", None),
         patient_snapshot=patient_snapshot,
         retrieved_context=retrieved_context,
         draft_package=draft_package,

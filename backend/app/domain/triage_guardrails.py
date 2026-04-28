@@ -14,6 +14,10 @@ _RED_FLAG_KEYWORDS: dict[str, str] = {
 }
 
 
+def list_triage_red_flag_keywords() -> list[str]:
+    return sorted(_RED_FLAG_KEYWORDS.keys())
+
+
 def detect_red_flag_reasons(
     *,
     presenting_complaint: str,

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.agents.lab_result_translator import run_lab_result_translator_agent
+from app.core.ai_usage import AIUsageContext
 from app.core.config import settings
 from app.domain.record_types import is_lab_result_record_type
 from app.models.record import Record
@@ -11,20 +12,39 @@ from app.schemas.consultation import (
     ConsultationLabObservation,
     ConsultationLabResultTranslation,
 )
+from app.services.ai_usage_service import AIUsageService
 
 
 class LabResultTranslationService:
+    def __init__(self, ai_usage_service: AIUsageService | None = None) -> None:
+        self.ai_usage_service = ai_usage_service or AIUsageService()
+
     async def translate_record(
         self,
         *,
         record: Record,
+        db=None,
+        usage_context: AIUsageContext | None = None,
     ) -> ConsultationLabResultTranslation:
         if not is_lab_result_record_type(record.record_type):
             raise ValueError("Selected record is not a supported lab result.")
 
         if settings.openai_api_key:
             try:
-                result = await run_lab_result_translator_agent(self._build_payload(record))
+                usage_hook = None
+                if db is not None and usage_context is not None:
+                    async def usage_hook(details):
+                        await self.ai_usage_service.record_usage(
+                            db,
+                            context=usage_context,
+                            usage=details,
+                            model=settings.openai_model,
+                        )
+
+                result = await run_lab_result_translator_agent(
+                    self._build_payload(record),
+                    usage_hook=usage_hook,
+                )
                 return ConsultationLabResultTranslation(
                     source="agent",
                     generated_at=datetime.now(timezone.utc),

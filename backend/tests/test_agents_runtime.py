@@ -22,6 +22,7 @@ from app.agents.triage import run_triage_agent
 from app.models.consultation_session import ConsultationSession
 from app.models.record import Record
 from app.models.triage_case import TriageCase
+from app.core.ai_usage import AIUsageDetails
 
 
 class StubRuntime:
@@ -190,3 +191,50 @@ def test_agent_runtime_serialization_enforces_payload_budget() -> None:
 
     assert len(serialized) < 12000
     assert "..." in serialized
+
+
+async def test_agent_runtime_extracts_usage_and_invokes_usage_hook() -> None:
+    recorded: list[AIUsageDetails] = []
+
+    async def fake_runner(*_args, **_kwargs):
+        return SimpleNamespace(
+            final_output=IntakeAgentOutput(
+                normalized_complaint="Headache and dizziness",
+                symptom_terms=["headache", "dizziness"],
+                review_status="needs_review",
+            ),
+            context_wrapper=SimpleNamespace(
+                usage=SimpleNamespace(
+                    requests=2,
+                    input_tokens=150,
+                    output_tokens=45,
+                    total_tokens=195,
+                    input_tokens_details=SimpleNamespace(cached_tokens=30),
+                    output_tokens_details=SimpleNamespace(reasoning_tokens=5),
+                )
+            ),
+        )
+
+    async def usage_hook(details: AIUsageDetails) -> None:
+        recorded.append(details)
+
+    runtime = AgentRuntime(runner=fake_runner)
+    result = await runtime.run_structured_agent(
+        agent_name="intake_normalization",
+        instructions="Normalize the intake.",
+        output_type=IntakeAgentOutput,
+        payload={"patient": {"first_name": "Ada"}},
+        usage_hook=usage_hook,
+    )
+
+    assert result.review_status == "needs_review"
+    assert recorded == [
+        AIUsageDetails(
+            requests=2,
+            input_tokens=150,
+            output_tokens=45,
+            total_tokens=195,
+            cached_input_tokens=30,
+            reasoning_tokens=5,
+        )
+    ]
