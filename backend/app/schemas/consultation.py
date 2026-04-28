@@ -14,6 +14,14 @@ ConsultationNextAction = Literal[
     "referral",
     "discharge",
 ]
+LabObservationFlag = Literal[
+    "normal",
+    "high",
+    "low",
+    "abnormal",
+    "critical",
+    "unknown",
+]
 
 
 class ConsultationPatientSnapshot(BaseModel):
@@ -55,6 +63,39 @@ class ConsultationDraftAssessmentPackage(BaseModel):
     next_action_suggestion: ConsultationNextAction | None = None
 
 
+class ConsultationSelectedLabRecord(BaseModel):
+    record_id: uuid.UUID
+    title: str
+    record_type: str
+    source: str
+    review_status: str
+    created_at: dt.datetime
+
+
+class ConsultationLabObservation(BaseModel):
+    name: str
+    value: str
+    unit: str | None = None
+    reference_range: str | None = None
+    flag: LabObservationFlag | None = None
+    interpretation: str | None = None
+
+
+class ConsultationLabResultTranslation(BaseModel):
+    source: Literal["agent", "fallback"]
+    generated_at: dt.datetime
+    review_status: str = "needs_review"
+    selected_record_id: uuid.UUID
+    selected_record_title: str
+    selected_record_created_at: dt.datetime
+    clinician_summary: str
+    patient_explanation: str
+    abnormal_findings: list[str] = Field(default_factory=list)
+    recommended_clinician_actions: list[str] = Field(default_factory=list)
+    escalation_note: str | None = None
+    key_observations: list[ConsultationLabObservation] = Field(default_factory=list)
+
+
 class ConsultationClinicianReview(BaseModel):
     is_finalized: bool = False
     reviewed_by: str | None = None
@@ -81,6 +122,8 @@ class ConsultationSessionDetail(ConsultationSessionSummary):
     patient_snapshot: ConsultationPatientSnapshot | None = None
     retrieved_context: list[ConsultationRetrievedContext] = Field(default_factory=list)
     draft_assessment_package: ConsultationDraftAssessmentPackage | None = None
+    selected_lab_record: ConsultationSelectedLabRecord | None = None
+    translated_lab_result: ConsultationLabResultTranslation | None = None
     clinician_review: ConsultationClinicianReview = Field(
         default_factory=ConsultationClinicianReview
     )
@@ -101,3 +144,8 @@ class ConsultationSessionUpdateRequest(BaseModel):
     next_action: ConsultationNextAction | None = None
     draft_note: dict[str, Any] | None = None
     final_assessment_reviewed: bool | None = None
+    selected_lab_record_id: uuid.UUID | None = None
+
+
+class ConsultationDraftRegenerateRequest(BaseModel):
+    selected_lab_record_id: uuid.UUID | None = None

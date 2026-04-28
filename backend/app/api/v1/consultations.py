@@ -12,19 +12,27 @@ from app.api.deps import get_request_actor
 from app.api.clinic_scope import require_actor_clinic_scope, resolve_existing_clinic_scope
 from app.api.guardrails import rate_limit_expensive_endpoint
 from app.core.database import get_db
-from app.domain import detect_red_flag_reasons, discharge_allowed_for_triage
+from app.domain import (
+    detect_red_flag_reasons,
+    discharge_allowed_for_triage,
+    is_lab_result_record_type,
+)
 from app.models.audit_event import AuditEvent
 from app.models.consultation_session import ConsultationSession
 from app.models.patient import Patient
+from app.models.record import Record
 from app.models.triage_case import TriageCase
 from app.schemas.common import RequestActor
 from app.schemas.consultation import (
     ConsultationClinicianReview,
+    ConsultationDraftRegenerateRequest,
     ConsultationDraftAssessmentPackage,
+    ConsultationLabResultTranslation,
     ConsultationSessionCreateRequest,
     ConsultationSessionDetail,
     ConsultationSessionSummary,
     ConsultationSessionUpdateRequest,
+    ConsultationSelectedLabRecord,
 )
 from app.services import ConsultationSupportService, EmbeddingService, RetrievalService
 
@@ -133,6 +141,28 @@ def _extract_draft_package(
     return ConsultationDraftAssessmentPackage.model_validate(stored_package)
 
 
+def _extract_selected_lab_record(
+    draft_note: dict[str, Any] | None,
+) -> ConsultationSelectedLabRecord | None:
+    if not isinstance(draft_note, dict):
+        return None
+    stored_record = draft_note.get("selected_lab_record")
+    if not isinstance(stored_record, dict):
+        return None
+    return ConsultationSelectedLabRecord.model_validate(stored_record)
+
+
+def _extract_translated_lab_result(
+    draft_note: dict[str, Any] | None,
+) -> ConsultationLabResultTranslation | None:
+    if not isinstance(draft_note, dict):
+        return None
+    stored_translation = draft_note.get("translated_lab_result")
+    if not isinstance(stored_translation, dict):
+        return None
+    return ConsultationLabResultTranslation.model_validate(stored_translation)
+
+
 def _merge_draft_note(
     existing: dict[str, Any] | None,
     incoming: dict[str, Any] | None,
@@ -182,6 +212,8 @@ async def _build_consultation_draft_workspace(
     Any,
     list[Any],
     ConsultationDraftAssessmentPackage | None,
+    ConsultationSelectedLabRecord | None,
+    ConsultationLabResultTranslation | None,
 ]:
     patient = consultation.__dict__.get("patient")
     if patient is None:
@@ -194,9 +226,17 @@ async def _build_consultation_draft_workspace(
         )
 
     if patient is None:
-        return None, triage_case, None, [], _extract_draft_package(consultation.draft_note)
+        return (
+            None,
+            triage_case,
+            None,
+            [],
+            _extract_draft_package(consultation.draft_note),
+            _extract_selected_lab_record(consultation.draft_note),
+            _extract_translated_lab_result(consultation.draft_note),
+        )
 
-    patient_snapshot, retrieved_context, draft_package = (
+    patient_snapshot, retrieved_context, draft_package, selected_lab_record, translated_lab_result = (
         await consultation_support_service.build_consultation_draft_workspace(
             db,
             consultation=consultation,
@@ -205,7 +245,41 @@ async def _build_consultation_draft_workspace(
             existing_draft_note=consultation.draft_note,
         )
     )
-    return patient, triage_case, patient_snapshot, retrieved_context, draft_package
+    return (
+        patient,
+        triage_case,
+        patient_snapshot,
+        retrieved_context,
+        draft_package,
+        selected_lab_record,
+        translated_lab_result,
+    )
+
+
+async def _load_selected_lab_record(
+    db: AsyncSession,
+    *,
+    consultation: ConsultationSession,
+    record_id: uuid.UUID,
+) -> Record:
+    query = select(Record).where(
+        Record.id == record_id,
+        Record.patient_id == consultation.patient_id,
+    )
+    if consultation.clinic_id is not None:
+        query = query.where(Record.clinic_id == consultation.clinic_id)
+    record = await db.scalar(query)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Selected lab result was not found for the current consultation scope.",
+        )
+    if not is_lab_result_record_type(record.record_type):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Selected record must be a lab result to use this consultation flow.",
+        )
+    return record
 
 
 async def _refresh_consultation_draft_package(
@@ -213,8 +287,14 @@ async def _refresh_consultation_draft_package(
     db: AsyncSession,
     consultation: ConsultationSession,
     consultation_support_service: ConsultationSupportService,
-) -> tuple[Any | None, list[Any], ConsultationDraftAssessmentPackage | None]:
-    _, _, patient_snapshot, retrieved_context, draft_package = (
+) -> tuple[
+    Any | None,
+    list[Any],
+    ConsultationDraftAssessmentPackage | None,
+    ConsultationSelectedLabRecord | None,
+    ConsultationLabResultTranslation | None,
+]:
+    _, _, patient_snapshot, retrieved_context, draft_package, selected_lab_record, translated_lab_result = (
         await _build_consultation_draft_workspace(
             db=db,
             consultation=consultation,
@@ -227,10 +307,22 @@ async def _refresh_consultation_draft_package(
             consultation.draft_note,
             {
                 "draft_assessment_package": draft_package.model_dump(mode="json"),
+                "selected_lab_record": selected_lab_record.model_dump(mode="json")
+                if selected_lab_record
+                else None,
+                "translated_lab_result": translated_lab_result.model_dump(mode="json")
+                if translated_lab_result
+                else None,
             },
         )
 
-    return patient_snapshot, retrieved_context, draft_package
+    return (
+        patient_snapshot,
+        retrieved_context,
+        draft_package,
+        selected_lab_record,
+        translated_lab_result,
+    )
 
 
 async def _build_consultation_detail(
@@ -241,6 +333,8 @@ async def _build_consultation_detail(
     patient_snapshot=None,
     retrieved_context: list[Any] | None = None,
     draft_package: ConsultationDraftAssessmentPackage | None = None,
+    selected_lab_record: ConsultationSelectedLabRecord | None = None,
+    translated_lab_result: ConsultationLabResultTranslation | None = None,
 ) -> ConsultationSessionDetail:
     (
         _patient,
@@ -248,6 +342,8 @@ async def _build_consultation_detail(
         built_patient_snapshot,
         built_retrieved_context,
         built_draft_package,
+        built_selected_lab_record,
+        built_translated_lab_result,
     ) = await _build_consultation_draft_workspace(
         db=db,
         consultation=consultation,
@@ -263,6 +359,14 @@ async def _build_consultation_detail(
     resolved_draft_package = (
         draft_package if draft_package is not None else built_draft_package
     )
+    resolved_selected_lab_record = (
+        selected_lab_record if selected_lab_record is not None else built_selected_lab_record
+    )
+    resolved_translated_lab_result = (
+        translated_lab_result
+        if translated_lab_result is not None
+        else built_translated_lab_result
+    )
 
     detail = ConsultationSessionDetail.model_validate(consultation)
     return detail.model_copy(
@@ -270,6 +374,8 @@ async def _build_consultation_detail(
             "patient_snapshot": resolved_patient_snapshot,
             "retrieved_context": resolved_retrieved_context,
             "draft_assessment_package": resolved_draft_package,
+            "selected_lab_record": resolved_selected_lab_record,
+            "translated_lab_result": resolved_translated_lab_result,
             "clinician_review": _extract_clinician_review(consultation.draft_note),
         }
     )
@@ -364,7 +470,7 @@ async def create_consultation(
 
     consultation.patient = patient
     consultation.triage_case = triage_case
-    patient_snapshot, retrieved_context, draft_package = (
+    patient_snapshot, retrieved_context, draft_package, selected_lab_record, translated_lab_result = (
         await _refresh_consultation_draft_package(
             db=db,
             consultation=consultation,
@@ -384,6 +490,9 @@ async def create_consultation(
             "status": consultation.status,
             "retrieved_context_count": len(retrieved_context),
             "draft_assessment_source": draft_package.source,
+            "selected_lab_record_id": str(selected_lab_record.record_id)
+            if selected_lab_record
+            else None,
         },
     )
     await db.commit()
@@ -395,6 +504,8 @@ async def create_consultation(
         patient_snapshot=patient_snapshot,
         retrieved_context=retrieved_context,
         draft_package=draft_package,
+        selected_lab_record=selected_lab_record,
+        translated_lab_result=translated_lab_result,
     )
 
 
@@ -446,6 +557,13 @@ async def update_consultation(
             mode="json"
         )
         review_finalized = False
+    if payload.selected_lab_record_id is not None:
+        selected_record = await _load_selected_lab_record(
+            db,
+            consultation=consultation,
+            record_id=payload.selected_lab_record_id,
+        )
+        merged_draft_note["selected_lab_record_id"] = str(selected_record.id)
 
     if payload.status is not None:
         if payload.status == "completed":
@@ -500,6 +618,7 @@ async def update_consultation(
             "after_status": consultation.status,
             "next_action": consultation.next_action,
             "final_assessment_reviewed": review_finalized,
+            "selected_lab_record_id": merged_draft_note.get("selected_lab_record_id"),
         },
     )
     await db.commit()
@@ -517,6 +636,7 @@ async def update_consultation(
 )
 async def regenerate_consultation_draft_assessment(
     consultation_id: uuid.UUID,
+    payload: ConsultationDraftRegenerateRequest | None = None,
     actor: RequestActor = Depends(get_request_actor),
     _rate_limit: None = Depends(rate_limit_expensive_endpoint("consultations_regenerate")),
     consultation_support_service: ConsultationSupportService = Depends(
@@ -535,7 +655,18 @@ async def regenerate_consultation_draft_assessment(
             detail="Consultation session not found for the current clinic scope.",
         )
 
-    patient_snapshot, retrieved_context, draft_package = (
+    if payload and payload.selected_lab_record_id is not None:
+        selected_record = await _load_selected_lab_record(
+            db,
+            consultation=consultation,
+            record_id=payload.selected_lab_record_id,
+        )
+        consultation.draft_note = _merge_draft_note(
+            consultation.draft_note,
+            {"selected_lab_record_id": str(selected_record.id)},
+        )
+
+    patient_snapshot, retrieved_context, draft_package, selected_lab_record, translated_lab_result = (
         await _refresh_consultation_draft_package(
             db=db,
             consultation=consultation,
@@ -551,6 +682,9 @@ async def regenerate_consultation_draft_assessment(
         details={
             "retrieved_context_count": len(retrieved_context),
             "draft_assessment_source": draft_package.source if draft_package else None,
+            "selected_lab_record_id": str(selected_lab_record.record_id)
+            if selected_lab_record
+            else None,
         },
     )
     await db.commit()
@@ -562,4 +696,6 @@ async def regenerate_consultation_draft_assessment(
         patient_snapshot=patient_snapshot,
         retrieved_context=retrieved_context,
         draft_package=draft_package,
+        selected_lab_record=selected_lab_record,
+        translated_lab_result=translated_lab_result,
     )

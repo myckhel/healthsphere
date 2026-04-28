@@ -1,6 +1,7 @@
 import datetime as dt
 import uuid
 
+from app.core.config import settings
 from app.models.consultation_session import ConsultationSession
 from app.models.clinic import Clinic
 from app.models.patient import Patient
@@ -371,3 +372,99 @@ async def test_regenerate_consultation_draft_assessment_updates_package(client, 
     audit_event = db_session._added[0]
     assert audit_event.action == "draft_regenerated"
     assert audit_event.details["retrieved_context_count"] == 1
+
+
+async def test_regenerate_consultation_draft_assessment_uses_selected_lab_result(
+    client,
+    db_session,
+) -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    patient = Patient(
+        id=TEST_PATIENT_ID,
+        clinic_id=TEST_CLINIC_ID,
+        first_name="Ada",
+        last_name="Okafor",
+        consent_status="granted",
+    )
+    triage_case = TriageCase(
+        id=TEST_TRIAGE_ID,
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        source="intake",
+        status="in_consultation",
+        urgency_level="routine",
+        presenting_complaint="Fatigue and dizziness for one week",
+        symptoms=["fatigue", "dizziness"],
+        recommended_queue="general-physician",
+        review_status="pending",
+        created_at=now,
+        updated_at=now,
+    )
+    consultation = ConsultationSession(
+        id=uuid.uuid4(),
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        triage_case_id=TEST_TRIAGE_ID,
+        status="in_progress",
+        clinician_id="clinician-123",
+        clinician_name="Dr. Sadiq Musa",
+        draft_note={},
+        started_at=now,
+    )
+    consultation.patient = patient
+    consultation.triage_case = triage_case
+
+    lab_record = Record(
+        id=uuid.uuid4(),
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        title="CBC and iron studies",
+        record_type="lab",
+        source="upload",
+        raw_text="Hemoglobin low. Ferritin low. Review for anemia.",
+        structured_data={
+            "hemoglobin": {
+                "value": "9.5",
+                "unit": "g/dL",
+                "flag": "low",
+                "reference_range": "12-16",
+            },
+            "ferritin": {
+                "value": "8",
+                "unit": "ng/mL",
+                "flag": "low",
+            },
+        },
+        review_status="approved",
+        created_at=now,
+        updated_at=now,
+    )
+
+    original_openai_api_key = settings.openai_api_key
+    settings.openai_api_key = None
+    db_session.scalar.side_effect = [consultation, lab_record, lab_record, lab_record]
+    db_session.scalars.return_value = type(
+        "ScalarResult",
+        (),
+        {"all": lambda self: []},
+    )()
+
+    try:
+        response = await client.post(
+            f"/api/v1/consultations/{consultation.id}/draft-assessment/regenerate",
+            headers=actor_headers(),
+            json={"selected_lab_record_id": str(lab_record.id)},
+        )
+    finally:
+        settings.openai_api_key = original_openai_api_key
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["selected_lab_record"]["record_id"] == str(lab_record.id)
+    assert body["translated_lab_result"]["selected_record_id"] == str(lab_record.id)
+    assert body["translated_lab_result"]["key_observations"]
+    assert "selected lab result" in body["draft_assessment_package"]["assessment"].lower()
+    assert consultation.draft_note["selected_lab_record_id"] == str(lab_record.id)
+
+    audit_event = db_session._added[0]
+    assert audit_event.details["selected_lab_record_id"] == str(lab_record.id)

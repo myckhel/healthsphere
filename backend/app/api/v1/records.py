@@ -4,13 +4,14 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.clinic_scope import require_actor_clinic_scope, resolve_existing_clinic_scope
 from app.api.deps import get_request_actor
 from app.api.guardrails import rate_limit_expensive_endpoint
 from app.core.database import get_db
+from app.domain import expand_record_type_filter
 from app.domain.review_policy import resolve_record_review_transition
 from app.models.audit_event import AuditEvent
 from app.models.patient import Patient
@@ -126,6 +127,7 @@ def _apply_chunk_scope(
 async def list_records(
     patient_id: uuid.UUID | None = Query(default=None),
     review_status: str | None = Query(default=None),
+    record_type: str | None = Query(default=None),
     actor: RequestActor = Depends(get_request_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[RecordSummary]:
@@ -135,6 +137,9 @@ async def list_records(
         query = query.where(Record.patient_id == patient_id)
     if review_status:
         query = query.where(Record.review_status == review_status)
+    normalized_record_types = expand_record_type_filter(record_type)
+    if normalized_record_types:
+        query = query.where(func.lower(Record.record_type).in_(normalized_record_types))
     records = (await db.scalars(query)).all()
     return [RecordSummary.model_validate(item) for item in records]
 

@@ -18,7 +18,9 @@ async def run_consultation_scribe_agent(
         instructions=(
             "Draft a clinician-facing consultation note scaffold from the supplied encounter context. "
             "Use structured outputs only. Use tools for patient lookup, record retrieval, and clinic policy. "
-            "Do not finalize assessment; keep everything draft-only with review_status needs_review."
+            "If a selected lab result and translated lab summary are supplied, treat them as high-priority context for the draft assessment, plan, follow-up questions, and next action suggestion. "
+            "Do not diagnose, do not prescribe, and do not overstate certainty from lab values alone. "
+            "Keep everything draft-only with review_status needs_review."
         ),
         output_type=ConsultationAgentOutput,
         payload=payload,

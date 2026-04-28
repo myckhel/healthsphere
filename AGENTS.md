@@ -12,6 +12,7 @@ Core goals:
 - support clinicians during consultations without replacing them
 - automate safe follow-up workflows over familiar channels like SMS and WhatsApp
 - work reliably under weak connectivity and intermittent power conditions
+- improve patient outcomes and clinic operational efficiency without adding staff burden
 
 ## Product principles
 

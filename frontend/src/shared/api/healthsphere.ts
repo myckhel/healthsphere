@@ -52,6 +52,39 @@ export type ConsultationDraftAssessmentPackage = {
   nextActionSuggestion: ConsultationNextAction | null;
 };
 
+export type ConsultationSelectedLabRecord = {
+  recordId: string;
+  title: string;
+  recordType: string;
+  source: string;
+  reviewStatus: string;
+  createdAt: string;
+};
+
+export type ConsultationLabObservation = {
+  name: string;
+  value: string;
+  unit: string | null;
+  referenceRange: string | null;
+  flag: "normal" | "high" | "low" | "abnormal" | "critical" | "unknown" | null;
+  interpretation: string | null;
+};
+
+export type ConsultationLabResultTranslation = {
+  source: "agent" | "fallback";
+  generatedAt: string;
+  reviewStatus: string;
+  selectedRecordId: string;
+  selectedRecordTitle: string;
+  selectedRecordCreatedAt: string;
+  clinicianSummary: string;
+  patientExplanation: string;
+  abnormalFindings: string[];
+  recommendedClinicianActions: string[];
+  escalationNote: string | null;
+  keyObservations: ConsultationLabObservation[];
+};
+
 export type ConsultationClinicianReview = {
   isFinalized: boolean;
   reviewedBy: string | null;
@@ -143,6 +176,8 @@ export type ConsultationDetail = {
   patientSnapshot: ConsultationPatientSnapshot | null;
   retrievedContext: ConsultationRetrievedContext[];
   draftAssessmentPackage: ConsultationDraftAssessmentPackage | null;
+  selectedLabRecord: ConsultationSelectedLabRecord | null;
+  translatedLabResult: ConsultationLabResultTranslation | null;
   clinicianReview: ConsultationClinicianReview;
 };
 
@@ -161,6 +196,7 @@ export type UpdateConsultationInput = {
   nextAction?: ConsultationNextAction | null;
   draftNote?: Partial<ConsultationNoteDraft> | null;
   finalAssessmentReviewed?: boolean | null;
+  selectedLabRecordId?: string | null;
 };
 
 export type RecordDetail = {
@@ -276,6 +312,8 @@ type BackendConsultation = {
   patient_snapshot?: BackendConsultationPatientSnapshot | null;
   retrieved_context?: BackendConsultationRetrievedContext[] | null;
   draft_assessment_package?: BackendConsultationDraftAssessmentPackage | null;
+  selected_lab_record?: BackendConsultationSelectedLabRecord | null;
+  translated_lab_result?: BackendConsultationLabResultTranslation | null;
   clinician_review?: BackendConsultationClinicianReview | null;
 };
 
@@ -316,6 +354,39 @@ type BackendConsultationDraftAssessmentPackage = {
   plan: string;
   follow_up_questions: string[];
   next_action_suggestion: ConsultationNextAction | null;
+};
+
+type BackendConsultationSelectedLabRecord = {
+  record_id: string;
+  title: string;
+  record_type: string;
+  source: string;
+  review_status: string;
+  created_at: string;
+};
+
+type BackendConsultationLabObservation = {
+  name: string;
+  value: string;
+  unit: string | null;
+  reference_range: string | null;
+  flag: "normal" | "high" | "low" | "abnormal" | "critical" | "unknown" | null;
+  interpretation: string | null;
+};
+
+type BackendConsultationLabResultTranslation = {
+  source: "agent" | "fallback";
+  generated_at: string;
+  review_status: string;
+  selected_record_id: string;
+  selected_record_title: string;
+  selected_record_created_at: string;
+  clinician_summary: string;
+  patient_explanation: string;
+  abnormal_findings: string[];
+  recommended_clinician_actions: string[];
+  escalation_note: string | null;
+  key_observations: BackendConsultationLabObservation[];
 };
 
 type BackendConsultationClinicianReview = {
@@ -693,6 +764,12 @@ function normalizeConsultation(input: BackendConsultation): ConsultationDetail {
     draftAssessmentPackage: normalizeDraftAssessmentPackage(
       input.draft_assessment_package ?? null,
     ),
+    selectedLabRecord: normalizeConsultationSelectedLabRecord(
+      input.selected_lab_record ?? null,
+    ),
+    translatedLabResult: normalizeConsultationLabResultTranslation(
+      input.translated_lab_result ?? null,
+    ),
     clinicianReview: normalizeConsultationClinicianReview(
       input.clinician_review ?? null,
     ),
@@ -758,6 +835,53 @@ function normalizeDraftAssessmentPackage(
   };
 }
 
+function normalizeConsultationSelectedLabRecord(
+  input: BackendConsultationSelectedLabRecord | null,
+): ConsultationSelectedLabRecord | null {
+  if (!input) {
+    return null;
+  }
+
+  return {
+    recordId: input.record_id,
+    title: input.title,
+    recordType: input.record_type,
+    source: input.source,
+    reviewStatus: input.review_status,
+    createdAt: input.created_at,
+  };
+}
+
+function normalizeConsultationLabResultTranslation(
+  input: BackendConsultationLabResultTranslation | null,
+): ConsultationLabResultTranslation | null {
+  if (!input) {
+    return null;
+  }
+
+  return {
+    source: input.source,
+    generatedAt: input.generated_at,
+    reviewStatus: input.review_status,
+    selectedRecordId: input.selected_record_id,
+    selectedRecordTitle: input.selected_record_title,
+    selectedRecordCreatedAt: input.selected_record_created_at,
+    clinicianSummary: input.clinician_summary,
+    patientExplanation: input.patient_explanation,
+    abnormalFindings: input.abnormal_findings ?? [],
+    recommendedClinicianActions: input.recommended_clinician_actions ?? [],
+    escalationNote: input.escalation_note,
+    keyObservations: (input.key_observations ?? []).map((observation) => ({
+      name: observation.name,
+      value: observation.value,
+      unit: observation.unit,
+      referenceRange: observation.reference_range,
+      flag: observation.flag,
+      interpretation: observation.interpretation,
+    })),
+  };
+}
+
 function normalizeConsultationClinicianReview(
   input: BackendConsultationClinicianReview | null,
 ): ConsultationClinicianReview {
@@ -804,8 +928,13 @@ export const queryKeys = {
     ["consultations", patientId ?? "all", status ?? "all"] as const,
   consultation: (consultationId: string) =>
     ["consultation", consultationId] as const,
-  records: (patientId?: string, reviewStatus?: string) =>
-    ["records", patientId ?? "all", reviewStatus ?? "all"] as const,
+  records: (patientId?: string, reviewStatus?: string, recordType?: string) =>
+    [
+      "records",
+      patientId ?? "all",
+      reviewStatus ?? "all",
+      recordType ?? "all",
+    ] as const,
   record: (recordId: string) => ["record", recordId] as const,
 };
 
@@ -964,6 +1093,7 @@ export async function updateConsultation(
         next_action: input.nextAction,
         draft_note: input.draftNote,
         final_assessment_reviewed: input.finalAssessmentReviewed,
+        selected_lab_record_id: input.selectedLabRecordId,
       }),
     },
   );
@@ -972,11 +1102,15 @@ export async function updateConsultation(
 
 export async function regenerateConsultationDraftAssessment(
   consultationId: string,
+  selectedLabRecordId?: string,
 ) {
   const data = await requestJson<BackendConsultation>(
     `consultations/${consultationId}/draft-assessment/regenerate`,
     {
       method: "POST",
+      body: JSON.stringify({
+        selected_lab_record_id: selectedLabRecordId ?? null,
+      }),
     },
   );
   return normalizeConsultation(data);
@@ -985,10 +1119,12 @@ export async function regenerateConsultationDraftAssessment(
 export async function listRecords(
   patientId?: string,
   reviewStatus?: ReviewStatus | string,
+  recordType?: string,
 ) {
   const data = await requestJson<BackendRecord[]>("records", undefined, {
     patient_id: patientId,
     review_status: reviewStatus,
+    record_type: recordType,
   });
   return data.map(normalizeRecord);
 }

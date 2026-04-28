@@ -13,6 +13,14 @@ ConsultationNextActionSuggestion = Literal[
     "referral",
     "discharge",
 ]
+LabObservationFlag = Literal[
+    "normal",
+    "high",
+    "low",
+    "abnormal",
+    "critical",
+    "unknown",
+]
 
 
 class IntakeAgentOutput(BaseModel):
@@ -40,6 +48,25 @@ class ConsultationAgentOutput(BaseModel):
     plan: str = Field(min_length=1, max_length=4000)
     follow_up_questions: list[str] = Field(default_factory=list)
     next_action_suggestion: ConsultationNextActionSuggestion | None = None
+    review_status: DraftReviewStatus = "needs_review"
+
+
+class LabResultObservationOutput(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    value: str = Field(min_length=1, max_length=255)
+    unit: str | None = Field(default=None, max_length=64)
+    reference_range: str | None = Field(default=None, max_length=128)
+    flag: LabObservationFlag | None = None
+    interpretation: str | None = Field(default=None, max_length=500)
+
+
+class LabResultTranslationAgentOutput(BaseModel):
+    clinician_summary: str = Field(min_length=1, max_length=4000)
+    patient_explanation: str = Field(min_length=1, max_length=4000)
+    abnormal_findings: list[str] = Field(default_factory=list)
+    recommended_clinician_actions: list[str] = Field(default_factory=list)
+    escalation_note: str | None = Field(default=None, max_length=1000)
+    key_observations: list[LabResultObservationOutput] = Field(default_factory=list)
     review_status: DraftReviewStatus = "needs_review"
 
 

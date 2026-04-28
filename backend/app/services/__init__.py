@@ -8,6 +8,7 @@ from app.services.clinic_service import (
 )
 from app.services.consultation_support_service import ConsultationSupportService
 from app.services.embedding_service import EmbeddingService
+from app.services.lab_result_translation_service import LabResultTranslationService
 from app.services.messaging_service import MessagingService
 from app.services.ocr_service import OCRService
 from app.services.retrieval_service import RetrievalService
@@ -21,6 +22,7 @@ __all__ = [
     "EmbeddingService",
     "ensure_clinic",
     "get_clinic",
+    "LabResultTranslationService",
     "MessagingService",
     "OCRService",
     "require_clinic",

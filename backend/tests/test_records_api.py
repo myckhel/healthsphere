@@ -90,6 +90,32 @@ async def test_get_and_list_records_return_scoped_record_data(client, db_session
     assert detail_response.json()["structured_data"] == {"hemoglobin": 13.2}
 
 
+async def test_list_records_supports_lab_record_type_filter(client, db_session) -> None:
+    timestamp = dt.datetime(2026, 4, 25, 9, 0, tzinfo=dt.timezone.utc)
+    record = Record(
+        id=TEST_RECORD_ID,
+        clinic_id=TEST_CLINIC_ID,
+        patient_id=TEST_PATIENT_ID,
+        title="CBC result",
+        record_type="lab_result",
+        source="manual",
+        review_status="approved",
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    db_session.scalars.return_value = type("ScalarResult", (), {"all": lambda self: [record]})()
+
+    response = await client.get(
+        f"/api/v1/records?patient_id={TEST_PATIENT_ID}&record_type=lab",
+        headers=actor_headers(),
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["record_type"] == "lab_result"
+    executed_query = str(db_session.scalars.call_args.args[0])
+    assert "lower(records.record_type)" in executed_query
+
+
 async def test_review_record_sets_reviewer_fields_and_audits_change(client, db_session) -> None:
     timestamp = dt.datetime(2026, 4, 25, 9, 0, tzinfo=dt.timezone.utc)
     record = Record(

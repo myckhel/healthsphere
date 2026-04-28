@@ -201,9 +201,15 @@ export function PhysicianConsultationActivePage() {
   const localClinicianName = useAppStore((state) => state.clinicianName);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const [labSelectionError, setLabSelectionError] = useState<string | null>(
+    null,
+  );
   const [aiProgressStep, setAiProgressStep] = useState(0);
   const [lastAppliedAiPrefill, setLastAppliedAiPrefill] =
     useState<AiPrefillSnapshot>(buildAiPrefillSnapshot(null));
+  const [manualSelectedLabRecordId, setManualSelectedLabRecordId] = useState<
+    string | null
+  >(null);
   const regenerateFormSnapshotRef = useRef<ConsultationFormValues | null>(null);
   const skipNextConsultationResetRef = useRef(false);
 
@@ -214,9 +220,19 @@ export function PhysicianConsultationActivePage() {
     queryFn: () => getConsultation(consultationId as string),
     enabled: Boolean(consultationId),
   });
-  const recordsQuery = useQuery({
+  const allRecordsQuery = useQuery({
     queryKey: queryKeys.records(consultationQuery.data?.patientId),
     queryFn: () => listRecords(consultationQuery.data?.patientId),
+    enabled: Boolean(consultationQuery.data?.patientId),
+  });
+  const recordsQuery = useQuery({
+    queryKey: queryKeys.records(
+      consultationQuery.data?.patientId,
+      undefined,
+      "lab",
+    ),
+    queryFn: () =>
+      listRecords(consultationQuery.data?.patientId, undefined, "lab"),
     enabled: Boolean(consultationQuery.data?.patientId),
   });
 
@@ -234,6 +250,13 @@ export function PhysicianConsultationActivePage() {
   const consultation = consultationQuery.data;
   const patientSnapshot = consultation?.patientSnapshot;
   const draftPackage = consultation?.draftAssessmentPackage;
+  const translatedLabResult = consultation?.translatedLabResult;
+  const labRecords = recordsQuery.data ?? [];
+  const selectedLabRecordId =
+    manualSelectedLabRecordId ??
+    consultation?.selectedLabRecord?.recordId ??
+    labRecords[0]?.id ??
+    null;
 
   useEffect(() => {
     if (!consultation) {
@@ -272,10 +295,14 @@ export function PhysicianConsultationActivePage() {
 
   const regenerateMutation = useMutation({
     mutationFn: () =>
-      regenerateConsultationDraftAssessment(consultationId as string),
+      regenerateConsultationDraftAssessment(
+        consultationId as string,
+        selectedLabRecordId ?? undefined,
+      ),
     onMutate: () => {
       regenerateFormSnapshotRef.current = getValues();
       setRegenerateError(null);
+      setLabSelectionError(null);
       setAiProgressStep(0);
     },
     onSuccess: (updated) => {
@@ -390,6 +417,27 @@ export function PhysicianConsultationActivePage() {
     control,
     name: "nextAction",
   }) as ConsultationNextAction;
+  const applySelectedLabMutation = useMutation({
+    mutationFn: (recordId: string) =>
+      updateConsultation(consultationId as string, {
+        selectedLabRecordId: recordId,
+      }),
+    onMutate: () => {
+      setLabSelectionError(null);
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.consultation(updated.id), updated);
+      setManualSelectedLabRecordId(updated.selectedLabRecord?.recordId ?? null);
+    },
+    onError: (error) => {
+      setLabSelectionError(
+        getApiErrorMessage(
+          error,
+          "Unable to attach the selected lab result right now.",
+        ),
+      );
+    },
+  });
   const finalAssessmentReviewed = useWatch({
     control,
     name: "finalAssessmentReviewed",
@@ -405,6 +453,31 @@ export function PhysicianConsultationActivePage() {
   const examPrompt = patientSnapshot?.symptoms?.length
     ? `Use the presenting complaint and symptoms (${patientSnapshot.symptoms.join(", ")}) to guide a focused exam, then record only observed findings.`
     : "Use the presenting complaint and record context to guide a focused exam, then record only observed findings.";
+  const selectedLabRecord = labRecords.find(
+    (record) => record.id === selectedLabRecordId,
+  );
+  const appliedLabRecordId = consultation?.selectedLabRecord?.recordId ?? null;
+  const hasUnappliedLabSelection = Boolean(
+    selectedLabRecordId && selectedLabRecordId !== appliedLabRecordId,
+  );
+  const patientFriendlyLabSummary =
+    translatedLabResult?.patientExplanation?.trim();
+
+  const insertPatientSummaryIntoFollowUp = () => {
+    if (!patientFriendlyLabSummary) {
+      return;
+    }
+
+    const currentFollowUp = getValues("followUpInstructions").trim();
+    const nextFollowUp = currentFollowUp
+      ? `${currentFollowUp}\n\nPatient-facing lab summary: ${patientFriendlyLabSummary}`
+      : `Patient-facing lab summary: ${patientFriendlyLabSummary}`;
+
+    setValue("followUpInstructions", nextFollowUp, {
+      shouldDirty: true,
+      shouldTouch: true,
+    });
+  };
 
   if (!consultation || consultation.status !== "in_progress") {
     return (
@@ -583,11 +656,225 @@ export function PhysicianConsultationActivePage() {
                   "No draft plan is attached yet. Keep the clinician-authored note as the source of truth."}
               </p>
               <p>
-                This patient currently has {recordsQuery.data?.length ?? 0}{" "}
+                This patient currently has {allRecordsQuery.data?.length ?? 0}{" "}
                 saved record(s) and {consultation.retrievedContext.length}{" "}
                 retrieved context item(s) available for review.
               </p>
             </div>
+          </Card>
+
+          <Card className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-muted">
+                  Lab result context
+                </p>
+                <h3 className="mt-2 text-2xl text-ink">
+                  Select a lab result for AI-assisted translation
+                </h3>
+              </div>
+              <StatusPill tone={translatedLabResult ? "info" : "review"}>
+                {translatedLabResult ? "Translation ready" : "Manual selection"}
+              </StatusPill>
+            </div>
+
+            <div className="space-y-3 rounded-[1.5rem] border border-line bg-white px-4 py-4">
+              {labRecords.length ? (
+                <div className="grid gap-3">
+                  {labRecords.slice(0, 5).map((record, index) => {
+                    const isSelected = record.id === selectedLabRecordId;
+                    const isApplied = record.id === appliedLabRecordId;
+                    return (
+                      <button
+                        key={record.id}
+                        type="button"
+                        className={`rounded-[1.25rem] border px-4 py-3 text-left transition ${
+                          isSelected
+                            ? "border-brand bg-brand-soft/40"
+                            : "border-line bg-white hover:border-brand/40"
+                        }`}
+                        onClick={() => {
+                          setManualSelectedLabRecordId(record.id);
+                          setLabSelectionError(null);
+                        }}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-ink">
+                              {record.title}
+                            </p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted">
+                              {index === 0
+                                ? "Latest saved lab"
+                                : "Saved lab result"}
+                              {isApplied ? " • applied to consultation" : ""}
+                            </p>
+                          </div>
+                          <div className="text-right text-xs text-muted">
+                            <p>{formatDate(record.createdAt)}</p>
+                            <p>{record.reviewStatus}</p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm leading-6 text-muted">
+                  No saved lab results are available for this patient yet. The
+                  consultation can continue with the general retrieved context.
+                </p>
+              )}
+
+              {labRecords.length ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] bg-brand-soft/30 px-4 py-3 text-sm text-muted">
+                  <p>
+                    {hasUnappliedLabSelection
+                      ? "Apply the selected lab result to refresh the translated summary now, or regenerate the AI draft to use it directly."
+                      : appliedLabRecordId
+                        ? "The applied lab result is currently informing the consultation support workspace."
+                        : "The latest lab result is preselected. Apply it when you want the translation panel to refresh immediately."}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={
+                      !selectedLabRecordId ||
+                      !hasUnappliedLabSelection ||
+                      applySelectedLabMutation.isPending
+                    }
+                    onClick={() => {
+                      if (selectedLabRecordId) {
+                        applySelectedLabMutation.mutate(selectedLabRecordId);
+                      }
+                    }}
+                  >
+                    {applySelectedLabMutation.isPending
+                      ? "Applying..."
+                      : "Apply selected lab result"}
+                  </Button>
+                </div>
+              ) : null}
+
+              {labSelectionError ? (
+                <InfoBanner
+                  title="Unable to use selected lab result"
+                  tone="review"
+                >
+                  {labSelectionError}
+                </InfoBanner>
+              ) : null}
+            </div>
+
+            <Card className="space-y-4 border border-line/80 bg-white/95">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted">
+                    Clinician panel
+                  </p>
+                  <h4 className="mt-2 text-xl text-ink">
+                    Lab interpretation for clinician review
+                  </h4>
+                </div>
+                <StatusPill tone="review">Decision support only</StatusPill>
+              </div>
+
+              <div className="space-y-4 rounded-[1.5rem] border border-line bg-white px-4 py-4 text-sm leading-6 text-muted">
+                <div>
+                  <p className="font-semibold text-ink">Clinician summary</p>
+                  <p>
+                    {translatedLabResult?.clinicianSummary ||
+                      (selectedLabRecord
+                        ? "Apply the selected lab result or regenerate the AI draft to translate it into clinician support context."
+                        : "Select a lab result to generate a translated summary for this consultation.")}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-semibold text-ink">Key observations</p>
+                  <p>
+                    {translatedLabResult?.keyObservations.length
+                      ? translatedLabResult.keyObservations
+                          .map((item) => {
+                            const unit = item.unit ? ` ${item.unit}` : "";
+                            const flag = item.flag ? ` (${item.flag})` : "";
+                            return `${item.name}: ${item.value}${unit}${flag}`;
+                          })
+                          .join(" • ")
+                      : "No structured lab observations are attached yet."}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-semibold text-ink">
+                    Abnormal or notable findings
+                  </p>
+                  <p>
+                    {translatedLabResult?.abnormalFindings.length
+                      ? translatedLabResult.abnormalFindings.join(" ")
+                      : "No abnormal findings have been highlighted yet. Confirm directly with the raw report."}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-semibold text-ink">
+                    Recommended clinician actions
+                  </p>
+                  <p>
+                    {translatedLabResult?.recommendedClinicianActions.length
+                      ? translatedLabResult.recommendedClinicianActions.join(
+                          " ",
+                        )
+                      : "Recommended clinician actions will appear once a translated lab result is available."}
+                  </p>
+                </div>
+
+                {translatedLabResult?.escalationNote ? (
+                  <InfoBanner title="Potential escalation flag" tone="review">
+                    {translatedLabResult.escalationNote}
+                  </InfoBanner>
+                ) : null}
+              </div>
+            </Card>
+
+            <Card className="space-y-4 border border-line/80 bg-white/95">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted">
+                    Patient panel
+                  </p>
+                  <h4 className="mt-2 text-xl text-ink">
+                    Patient-facing lab summary
+                  </h4>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={!patientFriendlyLabSummary}
+                  onClick={insertPatientSummaryIntoFollowUp}
+                >
+                  Insert into follow-up instructions
+                </Button>
+              </div>
+
+              <div className="space-y-4 rounded-[1.5rem] border border-line bg-white px-4 py-4 text-sm leading-6 text-muted">
+                <div>
+                  <p className="font-semibold text-ink">
+                    Patient-friendly explanation
+                  </p>
+                  <p>
+                    {patientFriendlyLabSummary ||
+                      "A patient-friendly explanation will appear here after a lab result is applied to the consultation."}
+                  </p>
+                </div>
+
+                <InfoBanner title="Use after clinician review" tone="review">
+                  This summary supports the patient conversation. Confirm the
+                  lab values and the clinical meaning before sharing or
+                  documenting it in the final instructions.
+                </InfoBanner>
+              </div>
+            </Card>
           </Card>
 
           <Card className="space-y-5">
@@ -629,6 +916,7 @@ export function PhysicianConsultationActivePage() {
                 variant="secondary"
                 disabled={
                   isAiGenerationActive ||
+                  applySelectedLabMutation.isPending ||
                   saveMutation.isPending ||
                   completeMutation.isPending
                 }
@@ -692,6 +980,15 @@ export function PhysicianConsultationActivePage() {
                 <p>
                   {draftPackage?.assessment ||
                     "No draft assessment package has been generated yet."}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-semibold text-ink">Selected lab result</p>
+                <p>
+                  {consultation.selectedLabRecord
+                    ? `${consultation.selectedLabRecord.title} • ${formatDate(consultation.selectedLabRecord.createdAt)}`
+                    : "No lab result has been applied to the consultation yet."}
                 </p>
               </div>
 
