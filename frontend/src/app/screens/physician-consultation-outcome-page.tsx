@@ -11,7 +11,14 @@ import { getConsultation, queryKeys } from "@/shared/api/healthsphere";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
+import { LoadingPanel } from "@/shared/ui/loading-panel";
 import { StatusPill } from "@/shared/ui/status-pill";
+
+const consultationOutcomeSteps = [
+  "Loading completed visit",
+  "Checking review state",
+  "Preparing operational handoff",
+] as const;
 
 function formatSessionTime(value: string | null) {
   if (!value) {
@@ -41,6 +48,18 @@ export function PhysicianConsultationOutcomePage() {
   const nextAction = consultationNextActions.find(
     (option) => option.value === consultation?.nextAction,
   );
+
+  if (consultationQuery.isPending) {
+    return (
+      <LoadingPanel
+        title="Loading consultation outcome"
+        description="The completed visit summary and next operational handoff are loading now."
+        label="Loading"
+        steps={consultationOutcomeSteps}
+        currentStep={0}
+      />
+    );
+  }
 
   if (!consultation || consultation.status !== "completed") {
     return (

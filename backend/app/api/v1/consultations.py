@@ -302,6 +302,13 @@ async def _refresh_consultation_draft_package(
     ConsultationSelectedLabRecord | None,
     ConsultationLabResultTranslation | None,
 ]:
+    # Clear cached LLM output so the workspace build always regenerates fresh.
+    if isinstance(consultation.draft_note, dict):
+        consultation.draft_note = {
+            k: v for k, v in consultation.draft_note.items()
+            if k not in ("draft_assessment_package", "translated_lab_result")
+        }
+
     _, _, patient_snapshot, retrieved_context, draft_package, selected_lab_record, translated_lab_result = (
         await _build_consultation_draft_workspace(
             db=db,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from typing import Any
 
 from app.agents.lab_result_translator import run_lab_result_translator_agent
@@ -13,6 +14,9 @@ from app.schemas.consultation import (
     ConsultationLabResultTranslation,
 )
 from app.services.ai_usage_service import AIUsageService
+
+
+logger = logging.getLogger(__name__)
 
 
 class LabResultTranslationService:
@@ -67,7 +71,11 @@ class LabResultTranslationService:
                     ],
                 )
             except Exception:
-                pass
+                logger.warning(
+                    "Lab result translation agent failed; using fallback translation.",
+                    extra={"record_id": str(record.id)},
+                    exc_info=True,
+                )
 
         return self._build_fallback_translation(record)
 

@@ -10,9 +10,16 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
+import { LoadingPanel } from "@/shared/ui/loading-panel";
 import { StepProgress } from "@/shared/ui/step-progress";
 import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
+
+const visitStatusSteps = [
+  "Checking queue status",
+  "Checking consultation updates",
+  "Preparing patient next steps",
+] as const;
 
 function formatVisitTime(value: string | null) {
   if (!value) {
@@ -66,21 +73,24 @@ export function PatientNextStepsPage() {
   const selectedTriageCaseId = useAppStore(
     (state) => state.selectedTriageCaseId,
   );
+
   const queueQuery = useQuery({
     queryKey: queryKeys.triageQueue,
     queryFn: listTriageQueue,
     refetchInterval: 15000,
   });
-  const consultationsQuery = useQuery({
-    queryKey: queryKeys.consultations(selectedPatientId ?? undefined),
-    queryFn: () => listConsultations(selectedPatientId ?? undefined),
-    enabled: Boolean(selectedPatientId),
-    refetchInterval: 15000,
-  });
-
   const queueItem = queueQuery.data?.find(
     (item) => item.triageCaseId === selectedTriageCaseId,
   );
+  const patientIdForConsultations = selectedPatientId ?? queueItem?.patientId;
+
+  const consultationsQuery = useQuery({
+    queryKey: queryKeys.consultations(patientIdForConsultations ?? undefined),
+    queryFn: () => listConsultations(patientIdForConsultations ?? undefined),
+    enabled: Boolean(patientIdForConsultations),
+    refetchInterval: 15000,
+  });
+
   const queuePosition = queueQuery.data
     ? queueQuery.data.findIndex(
         (item) => item.triageCaseId === selectedTriageCaseId,
@@ -146,6 +156,23 @@ export function PatientNextStepsPage() {
           </Button>
         </div>
       </Card>
+    );
+  }
+
+  if (
+    (queueQuery.isPending && !queueQuery.data) ||
+    (Boolean(patientIdForConsultations) &&
+      consultationsQuery.isPending &&
+      !consultationsQuery.data)
+  ) {
+    return (
+      <LoadingPanel
+        title="Loading visit updates"
+        description="The clinic is syncing queue position and consultation status so the patient sees the right next step."
+        label="Syncing"
+        steps={visitStatusSteps}
+        currentStep={1}
+      />
     );
   }
 

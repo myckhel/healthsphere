@@ -1,5 +1,6 @@
 import { ArrowRight, Clock3, Stethoscope, UsersRound } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { physicianChecklist } from "@/app/app-content";
 import {
@@ -11,8 +12,15 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
+import { LoadingPanel } from "@/shared/ui/loading-panel";
 import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
+
+const consultationOpenSteps = [
+  "Checking existing consultation",
+  "Creating or resuming visit",
+  "Opening clinician workspace",
+] as const;
 
 export function PhysicianQueuePage() {
   const navigate = useNavigate();
@@ -25,6 +33,9 @@ export function PhysicianQueuePage() {
   );
   const setActiveConsultationId = useAppStore(
     (state) => state.setActiveConsultationId,
+  );
+  const [openingTriageCaseId, setOpeningTriageCaseId] = useState<string | null>(
+    null,
   );
 
   const queueQuery = useQuery({
@@ -41,6 +52,8 @@ export function PhysicianQueuePage() {
   });
 
   async function openQueueItem(patientId: string, triageCaseId: string) {
+    setOpeningTriageCaseId(triageCaseId);
+
     const existing = (consultationsQuery.data ?? []).find(
       (consultation) =>
         consultation.triageCaseId === triageCaseId &&
@@ -60,15 +73,34 @@ export function PhysicianQueuePage() {
       return;
     }
 
-    const consultation = await createConsultationMutation.mutateAsync({
-      patientId,
-      triageCaseId,
-      clinicianName,
-      status: "ready",
-    });
+    try {
+      const consultation = await createConsultationMutation.mutateAsync({
+        patientId,
+        triageCaseId,
+        clinicianName,
+        status: "ready",
+      });
 
-    setActiveConsultationId(consultation.id);
-    navigate(`/physician/consultation/${consultation.id}`);
+      setActiveConsultationId(consultation.id);
+      navigate(`/physician/consultation/${consultation.id}`);
+    } finally {
+      setOpeningTriageCaseId(null);
+    }
+  }
+
+  if (
+    (queueQuery.isPending && !queueQuery.data) ||
+    (consultationsQuery.isPending && !consultationsQuery.data)
+  ) {
+    return (
+      <LoadingPanel
+        title="Loading the physician queue"
+        description="The clinic queue and consultation state are syncing so the next patient opens into the correct workspace."
+        label="Syncing"
+        steps={consultationOpenSteps}
+        currentStep={0}
+      />
+    );
   }
 
   return (
@@ -125,6 +157,7 @@ export function PhysicianQueuePage() {
                 (consultation) =>
                   consultation.triageCaseId === patient.triageCaseId,
               );
+              const isOpening = openingTriageCaseId === patient.triageCaseId;
               const tone = !patient.patientId
                 ? ("review" as const)
                 : matchingConsultation?.status === "in_progress"
@@ -170,8 +203,7 @@ export function PhysicianQueuePage() {
                   <div className="mt-5 flex flex-wrap gap-3">
                     <Button
                       disabled={
-                        !patient.patientId ||
-                        createConsultationMutation.isPending
+                        !patient.patientId || Boolean(openingTriageCaseId)
                       }
                       onClick={() =>
                         patient.patientId
@@ -182,12 +214,27 @@ export function PhysicianQueuePage() {
                           : undefined
                       }
                     >
-                      {matchingConsultation?.status === "in_progress"
-                        ? "Resume consultation"
-                        : "Open consultation"}
+                      {isOpening
+                        ? "Opening consultation..."
+                        : matchingConsultation?.status === "in_progress"
+                          ? "Resume consultation"
+                          : "Open consultation"}
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   </div>
+
+                  {isOpening ? (
+                    <div className="mt-4">
+                      <LoadingPanel
+                        title="Preparing the clinician workspace"
+                        description="The visit is being created or resumed now so the physician opens the right patient context."
+                        label="Opening"
+                        steps={consultationOpenSteps}
+                        currentStep={1}
+                        className="border-brand/15 bg-brand-soft/20 p-4 sm:p-5"
+                      />
+                    </div>
+                  ) : null}
                 </div>
               );
             })}

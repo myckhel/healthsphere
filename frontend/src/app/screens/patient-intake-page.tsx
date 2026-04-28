@@ -6,6 +6,7 @@ import {
   MicOff,
   ShieldAlert,
 } from "lucide-react";
+import { useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -22,6 +23,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
+import { LoadingPanel } from "@/shared/ui/loading-panel";
 import { StepProgress } from "@/shared/ui/step-progress";
 import { Textarea } from "@/shared/ui/textarea";
 import { useAppStore } from "@/shared/state/app-store";
@@ -42,6 +44,12 @@ const intakeSchema = z.object({
 
 type IntakeFormValues = z.infer<typeof intakeSchema>;
 
+const triageCreationSteps = [
+  "Saving symptom summary",
+  "Creating the triage case",
+  "Preparing visit updates",
+] as const;
+
 export function PatientIntakePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -52,6 +60,8 @@ export function PatientIntakePage() {
   const setSelectedTriageCaseId = useAppStore(
     (state) => state.setSelectedTriageCaseId,
   );
+  const [triageProgressStep, setTriageProgressStep] = useState(0);
+  const triageProgressTimeoutsRef = useRef<number[]>([]);
 
   const {
     handleSubmit,
@@ -69,11 +79,28 @@ export function PatientIntakePage() {
 
   const createTriageMutation = useMutation({
     mutationFn: createTriageCase,
+    onMutate: () => {
+      triageProgressTimeoutsRef.current.forEach((timeout) =>
+        window.clearTimeout(timeout),
+      );
+      setTriageProgressStep(0);
+      triageProgressTimeoutsRef.current = [
+        window.setTimeout(() => setTriageProgressStep(1), 500),
+        window.setTimeout(() => setTriageProgressStep(2), 1100),
+      ];
+    },
     onSuccess: async (triageCase) => {
       setSelectedTriageCaseId(triageCase.id);
       await queryClient.invalidateQueries({ queryKey: queryKeys.triageQueue });
       await queryClient.invalidateQueries({ queryKey: queryKeys.triageCases });
       navigate("/patient/next-steps");
+    },
+    onSettled: () => {
+      triageProgressTimeoutsRef.current.forEach((timeout) =>
+        window.clearTimeout(timeout),
+      );
+      triageProgressTimeoutsRef.current = [];
+      setTriageProgressStep(0);
     },
   });
 
@@ -129,6 +156,16 @@ export function PatientIntakePage() {
                   "Check the intake details and try again.",
                 )}
               </InfoBanner>
+            ) : null}
+
+            {createTriageMutation.isPending ? (
+              <LoadingPanel
+                title="Creating the triage handoff"
+                description="The clinic is saving the symptom summary and preparing the next-step screen with live queue updates."
+                label="Submitting"
+                steps={triageCreationSteps}
+                currentStep={triageProgressStep}
+              />
             ) : null}
 
             <div className="space-y-4">

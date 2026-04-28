@@ -54,7 +54,7 @@ const defaultPatientDraft: PatientDraft = {
 };
 
 const defaultIntakeDraft: IntakeDraft = {
-  presentingComplaint: "Fever and headache for three days.",
+  presentingComplaint: "Im feeling weak, headache, high temperature, vomiting",
   symptomDuration: "2-3 days",
   symptomsText: "Fever, headache, weakness",
   urgencyLevel: "routine",

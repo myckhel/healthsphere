@@ -30,10 +30,29 @@ import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
 import { Input } from "@/shared/ui/input";
+import { LoadingPanel } from "@/shared/ui/loading-panel";
 import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
 import { StepProgress } from "@/shared/ui/step-progress";
 import { Textarea } from "@/shared/ui/textarea";
+
+const consultationWorkspaceSteps = [
+  "Loading consultation details",
+  "Loading record context",
+  "Preparing documentation workspace",
+] as const;
+
+const consultationSaveSteps = [
+  "Saving clinician note",
+  "Syncing consultation state",
+  "Preparing the next workspace",
+] as const;
+
+const labTranslationSteps = [
+  "Applying selected lab",
+  "Refreshing translated summary",
+  "Updating consultation context",
+] as const;
 
 const consultationSchema = z.object({
   clinicianName: z.string().trim().min(1, "Clinician name is required."),
@@ -463,6 +482,18 @@ export function PhysicianConsultationActivePage() {
   const patientFriendlyLabSummary =
     translatedLabResult?.patientExplanation?.trim();
 
+  if (consultationQuery.isPending) {
+    return (
+      <LoadingPanel
+        title="Loading the active consultation"
+        description="The clinician handoff, prior records, and documentation workspace are loading before live note-taking begins."
+        label="Loading"
+        steps={consultationWorkspaceSteps}
+        currentStep={0}
+      />
+    );
+  }
+
   const insertPatientSummaryIntoFollowUp = () => {
     if (!patientFriendlyLabSummary) {
       return;
@@ -679,6 +710,17 @@ export function PhysicianConsultationActivePage() {
             </div>
 
             <div className="space-y-3 rounded-[1.5rem] border border-line bg-white px-4 py-4">
+              {recordsQuery.isPending ? (
+                <LoadingPanel
+                  title="Loading lab results"
+                  description="Saved lab records are syncing so the right result can be attached to this consultation."
+                  label="Syncing"
+                  steps={labTranslationSteps}
+                  currentStep={0}
+                  className="border-none bg-brand-soft/20 p-4 shadow-none sm:p-4"
+                />
+              ) : null}
+
               {labRecords.length ? (
                 <div className="grid gap-3">
                   {labRecords.slice(0, 5).map((record, index) => {
@@ -750,7 +792,7 @@ export function PhysicianConsultationActivePage() {
                     }}
                   >
                     {applySelectedLabMutation.isPending
-                      ? "Applying..."
+                      ? "Applying selected lab..."
                       : "Apply selected lab result"}
                   </Button>
                 </div>
@@ -957,6 +999,17 @@ export function PhysicianConsultationActivePage() {
               </InfoBanner>
             ) : null}
 
+            {applySelectedLabMutation.isPending ? (
+              <LoadingPanel
+                title="Refreshing lab translation"
+                description="The selected lab result is being attached to this consultation and the translated guidance is updating now."
+                label="Applying"
+                steps={labTranslationSteps}
+                currentStep={1}
+                className="border-brand/15 bg-brand-soft/20"
+              />
+            ) : null}
+
             <div className="space-y-4 rounded-[1.5rem] border border-line bg-white px-4 py-4 text-sm leading-6 text-muted">
               <div>
                 <p className="font-semibold text-ink">Chief concern</p>
@@ -1120,9 +1173,20 @@ export function PhysicianConsultationActivePage() {
                 onClick={handleSubmit((values) => saveMutation.mutate(values))}
                 disabled={saveMutation.isPending || isAiGenerationActive}
               >
-                Save note draft
+                {saveMutation.isPending ? "Saving note..." : "Save note draft"}
               </Button>
             </div>
+
+            {saveMutation.isPending ? (
+              <LoadingPanel
+                title="Saving the clinician note"
+                description="The draft note is being stored now so the active consultation stays in sync across the workflow."
+                label="Saving"
+                steps={consultationSaveSteps}
+                currentStep={1}
+                className="border-brand/15 bg-brand-soft/20"
+              />
+            ) : null}
           </Card>
 
           <Card className="space-y-5">
@@ -1217,7 +1281,9 @@ export function PhysicianConsultationActivePage() {
                   completeMutation.mutate(values);
                 })}
               >
-                Complete consultation
+                {completeMutation.isPending
+                  ? "Completing consultation..."
+                  : "Complete consultation"}
                 <Stethoscope className="h-4 w-4" />
               </Button>
 
@@ -1230,6 +1296,17 @@ export function PhysicianConsultationActivePage() {
               <InfoBanner title="Unable to complete consultation" tone="review">
                 {getApiErrorMessage(completeMutation.error)}
               </InfoBanner>
+            ) : null}
+
+            {completeMutation.isPending ? (
+              <LoadingPanel
+                title="Completing the consultation"
+                description="The final note, review state, and next action are being saved before the outcome handoff opens."
+                label="Completing"
+                steps={consultationSaveSteps}
+                currentStep={2}
+                className="border-brand/15 bg-brand-soft/20"
+              />
             ) : null}
           </Card>
         </form>

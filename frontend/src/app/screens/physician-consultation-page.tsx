@@ -11,8 +11,15 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
+import { LoadingPanel } from "@/shared/ui/loading-panel";
 import { useAppStore } from "@/shared/state/app-store";
 import { StatusPill } from "@/shared/ui/status-pill";
+
+const consultationStartSteps = [
+  "Loading patient handoff",
+  "Checking record context",
+  "Preparing the consultation workspace",
+] as const;
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -66,6 +73,18 @@ export function PhysicianConsultationPage() {
     (option) => option.value === draftPackage?.nextActionSuggestion,
   );
   const firstName = patientSnapshot?.fullName.split(" ")[0] ?? "the patient";
+
+  if (consultationQuery.isPending) {
+    return (
+      <LoadingPanel
+        title="Loading consultation readiness"
+        description="The patient handoff, draft note, and record context are loading before the consultation workspace opens."
+        label="Loading"
+        steps={consultationStartSteps}
+        currentStep={0}
+      />
+    );
+  }
 
   if (!consultationId || consultationQuery.isError || !consultation) {
     return (
@@ -305,8 +324,10 @@ export function PhysicianConsultationPage() {
               <div>
                 <p className="font-semibold text-ink">Subjective draft</p>
                 <p>
-                  {draftPackage?.subjective ||
-                    `${firstName} is linked to ${recordsQuery.data?.length ?? 0} saved record(s). Confirm the complaint directly with the patient before documenting a final assessment.`}
+                  {recordsQuery.isPending
+                    ? "Record context is still loading for this patient."
+                    : draftPackage?.subjective ||
+                      `${firstName} is linked to ${recordsQuery.data?.length ?? 0} saved record(s). Confirm the complaint directly with the patient before documenting a final assessment.`}
                 </p>
               </div>
 
@@ -359,11 +380,13 @@ export function PhysicianConsultationPage() {
               onClick={handleConsultationAction}
               disabled={startMutation.isPending}
             >
-              {consultation.status === "in_progress"
-                ? "Resume consultation"
-                : consultation.status === "completed"
-                  ? "Review outcome"
-                  : "Start consultation"}
+              {startMutation.isPending
+                ? "Opening consultation..."
+                : consultation.status === "in_progress"
+                  ? "Resume consultation"
+                  : consultation.status === "completed"
+                    ? "Review outcome"
+                    : "Start consultation"}
               <Stethoscope className="h-4 w-4" />
             </Button>
 
@@ -371,6 +394,17 @@ export function PhysicianConsultationPage() {
               <Link to="/physician/queue">Return to queue</Link>
             </Button>
           </div>
+
+          {startMutation.isPending ? (
+            <LoadingPanel
+              title="Opening the consultation"
+              description="The clinician session is being marked in progress so the active workspace opens against the live visit."
+              label="Opening"
+              steps={consultationStartSteps}
+              currentStep={2}
+              className="border-brand/15 bg-brand-soft/20"
+            />
+          ) : null}
         </Card>
       </div>
     </div>

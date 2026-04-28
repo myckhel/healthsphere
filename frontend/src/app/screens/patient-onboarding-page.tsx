@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Languages, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -21,6 +21,7 @@ import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
 import { Input } from "@/shared/ui/input";
+import { LoadingPanel } from "@/shared/ui/loading-panel";
 import { StepProgress } from "@/shared/ui/step-progress";
 import { useAppStore } from "@/shared/state/app-store";
 import { Textarea } from "@/shared/ui/textarea";
@@ -46,6 +47,18 @@ const onboardingSchema = z.object({
 type OnboardingFormValues = z.infer<typeof onboardingSchema>;
 
 type IntakeMode = "self-service" | "staff-assisted";
+
+const patientLookupSteps = [
+  "Verifying patient ID",
+  "Checking clinic records",
+  "Preparing the intake path",
+] as const;
+
+const patientCreationSteps = [
+  "Saving patient details",
+  "Creating the patient chart",
+  "Preparing symptom intake",
+] as const;
 
 export function PatientOnboardingPage() {
   const navigate = useNavigate();
@@ -94,6 +107,10 @@ export function PatientOnboardingPage() {
   const [resolvedExternalId, setResolvedExternalId] = useState(
     patientDraft.externalId.trim(),
   );
+  const [lookupProgressStep, setLookupProgressStep] = useState(0);
+  const [createProgressStep, setCreateProgressStep] = useState(0);
+  const lookupProgressTimeoutsRef = useRef<number[]>([]);
+  const createProgressTimeoutsRef = useRef<number[]>([]);
 
   const lookupPatientMutation = useMutation({
     mutationFn: (requestedExternalId: string) =>
@@ -109,6 +126,16 @@ export function PatientOnboardingPage() {
             }
           : undefined,
       ),
+    onMutate: () => {
+      lookupProgressTimeoutsRef.current.forEach((timeout) =>
+        window.clearTimeout(timeout),
+      );
+      setLookupProgressStep(0);
+      lookupProgressTimeoutsRef.current = [
+        window.setTimeout(() => setLookupProgressStep(1), 500),
+        window.setTimeout(() => setLookupProgressStep(2), 1100),
+      ];
+    },
     onSuccess: (patient, requestedExternalId) => {
       const normalizedExternalId = requestedExternalId.trim();
       setResolvedExternalId(normalizedExternalId);
@@ -117,6 +144,13 @@ export function PatientOnboardingPage() {
       if (patient === null) {
         setSelectedPatientId(null);
       }
+    },
+    onSettled: () => {
+      lookupProgressTimeoutsRef.current.forEach((timeout) =>
+        window.clearTimeout(timeout),
+      );
+      lookupProgressTimeoutsRef.current = [];
+      setLookupProgressStep(0);
     },
   });
 
@@ -131,11 +165,28 @@ export function PatientOnboardingPage() {
 
   const createPatientMutation = useMutation({
     mutationFn: createPatient,
+    onMutate: () => {
+      createProgressTimeoutsRef.current.forEach((timeout) =>
+        window.clearTimeout(timeout),
+      );
+      setCreateProgressStep(0);
+      createProgressTimeoutsRef.current = [
+        window.setTimeout(() => setCreateProgressStep(1), 500),
+        window.setTimeout(() => setCreateProgressStep(2), 1100),
+      ];
+    },
     onSuccess: async (patient) => {
       setSelectedPatientId(patient.id);
       setSelectedTriageCaseId(null);
       await queryClient.invalidateQueries({ queryKey: ["patients"] });
       navigate("/patient/intake");
+    },
+    onSettled: () => {
+      createProgressTimeoutsRef.current.forEach((timeout) =>
+        window.clearTimeout(timeout),
+      );
+      createProgressTimeoutsRef.current = [];
+      setCreateProgressStep(0);
     },
   });
 
@@ -326,6 +377,16 @@ export function PatientOnboardingPage() {
               </InfoBanner>
             ) : null}
 
+            {lookupPatientMutation.isPending ? (
+              <LoadingPanel
+                title="Checking for an existing patient record"
+                description="Hold this screen while the clinic ID is verified and the right intake path is prepared."
+                label="Checking"
+                steps={patientLookupSteps}
+                currentStep={lookupProgressStep}
+              />
+            ) : null}
+
             {showMatchedPatientCard && activeMatchedPatient ? (
               <Card className="space-y-4 border border-success/25 bg-success-soft/35 p-5">
                 <div className="space-y-1">
@@ -341,6 +402,15 @@ export function PatientOnboardingPage() {
                   <div>
                     <dt className="text-xs uppercase tracking-[0.18em] text-muted">
                       Name
+                      {createPatientMutation.isPending ? (
+                        <LoadingPanel
+                          title="Creating the patient record"
+                          description="The patient chart is being created now so the intake team can continue without re-entering the same details."
+                          label="Saving"
+                          steps={patientCreationSteps}
+                          currentStep={createProgressStep}
+                        />
+                      ) : null}
                     </dt>
                     <dd className="mt-1 text-sm font-medium text-ink">
                       {formatPatientName(activeMatchedPatient)}

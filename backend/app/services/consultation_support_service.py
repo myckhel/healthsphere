@@ -192,6 +192,15 @@ class ConsultationSupportService:
     ) -> ConsultationLabResultTranslation | None:
         if selected_lab_record is None:
             return None
+        draft_note = consultation.draft_note or {}
+        stored_translation = draft_note.get("translated_lab_result")
+        stored_record_id = str(draft_note.get("selected_lab_record_id") or "")
+        if isinstance(stored_translation, dict) and str(selected_lab_record.id) == stored_record_id:
+            validated_translation = ConsultationLabResultTranslation.model_validate(
+                stored_translation
+            )
+            if validated_translation.source == "agent" or not settings.openai_api_key:
+                return validated_translation
         return await self.lab_result_translation_service.translate_record(
             db=db,
             record=selected_lab_record,
@@ -221,6 +230,10 @@ class ConsultationSupportService:
         actor_role: str | None,
         request_id: str | None,
     ) -> ConsultationDraftAssessmentPackage:
+        stored_package = (existing_draft_note or {}).get("draft_assessment_package")
+        if isinstance(stored_package, dict):
+            return ConsultationDraftAssessmentPackage.model_validate(stored_package)
+
         complaint_summary = patient_snapshot.presenting_complaint or "Consultation requires clinician review."
         payload = {
             "patient": patient_snapshot.model_dump(mode="json"),

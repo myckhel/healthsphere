@@ -30,6 +30,7 @@ class AgentRuntime:
         payload: dict[str, Any],
         tools: Sequence[Any] = (),
         max_turns: int = 6,
+        max_output_tokens: int | None = None,
         usage_hook: UsageHook | None = None,
     ) -> OutputT:
         if self._runner is Runner.run and not settings.openai_api_key:
@@ -46,7 +47,7 @@ class AgentRuntime:
             model_settings=ModelSettings(
                 temperature=0,
                 parallel_tool_calls=False,
-                max_tokens=settings.agent_max_output_tokens,
+                max_tokens=max_output_tokens or settings.agent_max_output_tokens,
                 truncation="auto",
                 store=False,
             ),
