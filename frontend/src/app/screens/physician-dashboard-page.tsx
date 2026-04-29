@@ -21,6 +21,7 @@ import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
 import { StatusPill } from "@/shared/ui/status-pill";
+import { SummaryStatCard } from "@/shared/ui/summary-stat-card";
 
 export function PhysicianDashboardPage() {
   const [consultationStatusFilter, setConsultationStatusFilter] = useState<
@@ -119,30 +120,26 @@ export function PhysicianDashboardPage() {
       <section className="grid gap-6 xl:grid-cols-2">
         <Card className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-[1.5rem] border border-line bg-white px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                Waiting now
-              </p>
-              <p className="mt-2 text-3xl font-semibold text-ink">
-                {queueQuery.data?.length ?? 0}
-              </p>
-            </div>
-            <div className="rounded-[1.5rem] border border-line bg-white px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                In progress
-              </p>
-              <p className="mt-2 text-3xl font-semibold text-ink">
-                {inProgress}
-              </p>
-            </div>
-            <div className="rounded-[1.5rem] border border-line bg-white px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                Records pending
-              </p>
-              <p className="mt-2 text-3xl font-semibold text-ink">
-                {pendingRecords}
-              </p>
-            </div>
+            <SummaryStatCard
+              label="Waiting now"
+              value={queueQuery.data?.length ?? 0}
+              isLoading={queueQuery.isPending && !queueQuery.data}
+              className="rounded-[1.5rem] border border-line bg-white px-4 py-4"
+            />
+            <SummaryStatCard
+              label="In progress"
+              value={inProgress}
+              isLoading={
+                allConsultationsQuery.isPending && !allConsultationsQuery.data
+              }
+              className="rounded-[1.5rem] border border-line bg-white px-4 py-4"
+            />
+            <SummaryStatCard
+              label="Records pending"
+              value={pendingRecords}
+              isLoading={recordsQuery.isPending && !recordsQuery.data}
+              className="rounded-[1.5rem] border border-line bg-white px-4 py-4"
+            />
           </div>
 
           <div className="space-y-3">

@@ -18,6 +18,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { StatusPill } from "@/shared/ui/status-pill";
+import { SummaryStatCard } from "@/shared/ui/summary-stat-card";
 
 export function HomePage() {
   const queueQuery = useQuery({
@@ -101,30 +102,23 @@ export function HomePage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-[1.5rem] border border-line bg-white/80 px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                Waiting now
-              </p>
-              <p className="mt-2 text-3xl font-semibold text-ink">
-                {queueCount}
-              </p>
-            </div>
-            <div className="rounded-[1.5rem] border border-line bg-white/80 px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                In consultation
-              </p>
-              <p className="mt-2 text-3xl font-semibold text-ink">
-                {inProgressCount}
-              </p>
-            </div>
-            <div className="rounded-[1.5rem] border border-line bg-white/80 px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                Records to review
-              </p>
-              <p className="mt-2 text-3xl font-semibold text-ink">
-                {reviewCount}
-              </p>
-            </div>
+            <SummaryStatCard
+              label="Waiting now"
+              value={queueCount}
+              isLoading={queueQuery.isPending && !queueQuery.data}
+            />
+            <SummaryStatCard
+              label="In consultation"
+              value={inProgressCount}
+              isLoading={
+                consultationsQuery.isPending && !consultationsQuery.data
+              }
+            />
+            <SummaryStatCard
+              label="Records to review"
+              value={reviewCount}
+              isLoading={recordsQuery.isPending && !recordsQuery.data}
+            />
           </div>
         </Card>
       </section>

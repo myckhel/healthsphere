@@ -24,6 +24,7 @@ import { Card } from "@/shared/ui/card";
 import { InfoBanner } from "@/shared/ui/info-banner";
 import { Input } from "@/shared/ui/input";
 import { StatusPill } from "@/shared/ui/status-pill";
+import { SummaryStatCard } from "@/shared/ui/summary-stat-card";
 import { Textarea } from "@/shared/ui/textarea";
 import { useAppStore } from "@/shared/state/app-store";
 
@@ -176,6 +177,9 @@ export function ReceptionDashboardPage() {
         "Unable to load triage cases for this clinic.",
       )
     : null;
+  const patientCount = patientsQuery.data?.length ?? 0;
+  const savedRecordCount = recordsQuery.data?.length ?? 0;
+  const triageCaseCount = triageCasesQuery.data?.length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -204,6 +208,24 @@ export function ReceptionDashboardPage() {
         should enter the record text manually, review it, and only then approve
         the record.
       </InfoBanner>
+
+      <section className="grid gap-4 sm:grid-cols-3">
+        <SummaryStatCard
+          label="Patients in scope"
+          value={patientCount}
+          isLoading={patientsQuery.isPending && !patientsQuery.data}
+        />
+        <SummaryStatCard
+          label="Saved records"
+          value={savedRecordCount}
+          isLoading={recordsQuery.isPending && !recordsQuery.data}
+        />
+        <SummaryStatCard
+          label="Triage cases"
+          value={triageCaseCount}
+          isLoading={triageCasesQuery.isPending && !triageCasesQuery.data}
+        />
+      </section>
 
       <section className="grid gap-6 xl:grid-cols-[0.78fr_1fr_1fr]">
         <Card className="space-y-4">
